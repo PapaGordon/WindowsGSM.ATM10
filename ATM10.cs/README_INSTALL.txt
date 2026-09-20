@@ -10,7 +10,7 @@ WindowsGSM plugin for Minecraft All the Mods 10 (ATM10) on NeoForge / Minecraft 
 
 Requirements
 ------------
-- WindowsGSM 1.21+ / 1.23.x style plugin support
+- Raziel7893/WindowsGSM v1.25.2.1 or a compatible Raziel build
 - 64-bit Java 21 available through JAVA_HOME, a common JDK installation folder or PATH
 - Official ATM10 ServerFiles-*.zip from CurseForge
 

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.1.22"><img src="https://img.shields.io/badge/WindowsGSM-Raziel%20v1.25.1.22-38CDD4" alt="Raziel WindowsGSM v1.25.1.22"></a>
+  <a href="https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.2.1"><img src="https://img.shields.io/badge/WindowsGSM-Raziel%20v1.25.2.1-38CDD4" alt="Raziel WindowsGSM v1.25.2.1"></a>
   <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.8-7AC943" alt="Version 0.1.8"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
@@ -31,7 +31,7 @@ The plugin installs a locally supplied official ATM10 server pack, manages the N
 
 ## Requirements
 
-- [WindowsGSM](https://github.com/WindowsGSM/WindowsGSM) 1.21 or newer
+- [Raziel7893/WindowsGSM v1.25.2.1](https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.2.1) or a compatible Raziel WindowsGSM build
 - 64-bit Java 21 or newer
 - The official ATM10 `ServerFiles-*.zip` from [CurseForge](https://www.curseforge.com/minecraft/modpacks/all-the-mods-10)
 - Administrator rights for WindowsGSM
@@ -96,6 +96,7 @@ Run **Install** or **Update** again and inspect the WindowsGSM console for error
 
 - Source: [PapaGordon/WindowsGSM.ATM10-MeFriendos](https://github.com/PapaGordon/WindowsGSM.ATM10-MeFriendos)
 - ATM10: [CurseForge](https://www.curseforge.com/minecraft/modpacks/all-the-mods-10)
+- WindowsGSM: [Raziel7893/WindowsGSM v1.25.2.1](https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.2.1)
 - Community: [mefriendos.de](https://mefriendos.de)
 
 This is an independent community plugin. It is not affiliated with or endorsed by the ATM Team, CurseForge, NeoForge, Mojang, Microsoft or WindowsGSM.
