@@ -21,7 +21,7 @@ namespace WindowsGSM.Plugins
             name = "WindowsGSM.ATM10",
             author = "MeFriendos",
             description = "WindowsGSM plugin for Minecraft: All the Mods 10 (ATM10 / NeoForge)",
-            version = "0.1.8",
+            version = "0.1.9",
             url = "https://github.com/PapaGordon/WindowsGSM.ATM10-MeFriendos",
             color = "#7AC943"
         };
@@ -29,7 +29,7 @@ namespace WindowsGSM.Plugins
         private readonly ServerConfig _serverData;
         public string Error, Notice;
 
-        public ATM10(ServerConfig serverData) => _serverData = serverData;
+        public ATM10(ServerConfig serverData) { _serverData = serverData; }
 
         public string StartPath => "startserver.bat";
         public string FullName = "Minecraft: All the Mods 10 (ATM10)";
@@ -44,6 +44,8 @@ namespace WindowsGSM.Plugins
         public string Additional = "";
 
         private const string VersionMarker = ".wgsm-atm10-version.txt";
+        private const string ConfigDefaultsDirectory = ".wgsm-atm10-config-defaults";
+        private static readonly string[] ConfigDirectories = { "config", "defaultconfigs" };
         private const string CurseForgeUrl = "https://www.curseforge.com/minecraft/modpacks/all-the-mods-10";
 
         public async void CreateServerCFG()
@@ -60,6 +62,16 @@ namespace WindowsGSM.Plugins
 
         public async Task<Process> Start()
         {
+            try
+            {
+                using (AcquireUpdateLock(ServerPath.GetServersServerFiles(_serverData.ServerID))) { }
+            }
+            catch (Exception e)
+            {
+                Error = e.Message;
+                return null;
+            }
+
             if (!RemoveAutomaticBroadFirewallRule())
             {
                 Error = "Automatic firewall access could not be disabled. Start WindowsGSM as administrator or remove the broad startserver.bat rule manually.";
@@ -278,7 +290,7 @@ namespace WindowsGSM.Plugins
 
             try
             {
-                await ExtractServerPack(packZip, root, false);
+                await ExtractServerPack(packZip, root);
                 RestoreMemoryArgs(Path.Combine(root, "user_jvm_args.txt"), memoryArgs);
                 File.WriteAllText(Path.Combine(root, "eula.txt"), "eula=true" + Environment.NewLine);
                 EnsureServerProperties();
@@ -321,30 +333,38 @@ namespace WindowsGSM.Plugins
                 return null;
             }
 
-            string memoryArgs = ReadMemoryArgs(Path.Combine(root, "user_jvm_args.txt"));
-
+            string extract = Path.Combine(Path.GetDirectoryName(root.TrimEnd(Path.DirectorySeparatorChar)),
+                ".wgsm-atm10-extract-" + Guid.NewGuid().ToString("N"));
+            Error = null;
+            Notice = null;
             try
             {
-                await ExtractServerPack(packZip, root, true);
-                RestoreMemoryArgs(Path.Combine(root, "user_jvm_args.txt"), memoryArgs);
-                EnsureServerProperties();
+                using (AcquireUpdateLock(root))
+                {
+                    Directory.CreateDirectory(extract);
+                    await FileManagement.ExtractZip(packZip, extract);
+                    ValidateTree(extract);
+                    string packRoot = FindExtractedPackRoot(extract);
+                    if (string.IsNullOrWhiteSpace(packRoot))
+                        throw new IOException("startserver.bat was not found inside the selected server pack ZIP.");
 
-                // Run the NeoForge installer internally and wait for it here.
-                // Returning the Java Process to WindowsGSM caused the update UI to
-                // remain on e.g. "8.1 > 8.1" while WindowsGSM waited on its streams.
-                bool installerOk = await RunNeoForgeInstallerForUpdate(root, javaPath);
-                if (!installerOk)
-                    return null;
-
-                WriteLocalVersion(root, packZip);
-                Notice = "ATM10 updated successfully to " + packBuild + ".";
-                return null;
+                    UpdateResult result = await PrepareAndCommitUpdate(packRoot, root, packBuild,
+                        stage => RunNeoForgeInstallerForUpdate(stage, javaPath));
+                    Notice = "ATM10 updated successfully to " + packBuild + ". Backup: " + result.BackupPath +
+                        (result.Conflicts == 0 ? "." : ". " + result.Conflicts +
+                        " configuration conflict(s): existing settings kept. Review config-conflicts.txt in the backup folder.");
+                }
             }
             catch (Exception e)
             {
                 Error = "ATM10 update failed: " + e.Message;
-                return null;
             }
+            finally
+            {
+                try { if (Directory.Exists(extract)) DeleteWritableDirectory(extract); }
+                catch { /* Extraction leftovers are outside the live server directory. */ }
+            }
+            return null;
         }
 
         public bool IsInstallValid()
@@ -756,41 +776,27 @@ namespace WindowsGSM.Plugins
                 .FirstOrDefault();
         }
 
-        private async Task ExtractServerPack(string zipPath, string root, bool update)
+        private async Task ExtractServerPack(string zipPath, string root)
         {
             string temp = Path.Combine(root, "_wgsm_atm10_extract");
             if (Directory.Exists(temp))
-                Directory.Delete(temp, true);
+                DeleteWritableDirectory(temp);
             Directory.CreateDirectory(temp);
 
             try
             {
                 await FileManagement.ExtractZip(zipPath, temp);
-
+                ValidateTree(temp);
                 string packRoot = FindExtractedPackRoot(temp);
                 if (string.IsNullOrWhiteSpace(packRoot))
-                    throw new Exception("startserver.bat was not found inside the selected server pack ZIP.");
+                    throw new IOException("startserver.bat was not found inside the selected server pack ZIP.");
 
-                if (update)
-                {
-                    foreach (string oldInstaller in Directory.GetFiles(root, "neoforge-*-installer.jar", SearchOption.TopDirectoryOnly))
-                    {
-                        try { File.Delete(oldInstaller); } catch { }
-                    }
-                    CopyPackForUpdate(packRoot, root);
-                }
-                else
-                {
-                    CopyDirectoryContents(packRoot, root, true);
-                }
+                CopyDirectoryContents(packRoot, root, true);
+                SaveConfigDefaults(packRoot, root, GetBuildFromServerPackZip(zipPath));
             }
             finally
             {
-                try
-                {
-                    if (Directory.Exists(temp))
-                        Directory.Delete(temp, true);
-                }
+                try { if (Directory.Exists(temp)) DeleteWritableDirectory(temp); }
                 catch { }
             }
         }
@@ -807,74 +813,332 @@ namespace WindowsGSM.Plugins
             return string.IsNullOrWhiteSpace(found) ? null : Path.GetDirectoryName(found);
         }
 
+        private sealed class UpdateResult
+        {
+            public string BackupPath;
+            public int Conflicts;
+        }
+
+        // Prepare the complete update next to serverfiles on the same volume.
+        // No existing server file is changed until preparation and NeoForge succeed.
+        private async Task<UpdateResult> PrepareAndCommitUpdate(string packRoot, string root,
+            string packBuild, Func<string, Task<bool>> installRuntime)
+        {
+            ValidateTree(root);
+            ValidateTree(packRoot);
+            if (Directory.Exists(Path.Combine(packRoot, ConfigDefaultsDirectory)) ||
+                File.Exists(Path.Combine(packRoot, ConfigDefaultsDirectory)))
+                throw new IOException("The server pack contains a reserved plugin state path.");
+
+            string parent = Path.GetDirectoryName(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar));
+            string backup = Path.Combine(parent, "atm10-update-backups",
+                DateTime.UtcNow.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N"));
+            string stage = Path.Combine(backup, "prepared-serverfiles");
+            var conflicts = new List<string>();
+            try
+            {
+                CopyDirectoryContents(root, stage, true);
+                string memoryArgs = ReadMemoryArgs(Path.Combine(root, "user_jvm_args.txt"));
+                CopyPackForUpdate(packRoot, stage);
+                bool knownDefaults = HasConfigDefaults(root);
+                foreach (string name in ConfigDirectories)
+                {
+                    string incoming = Path.Combine(packRoot, name);
+                    if (Directory.Exists(incoming))
+                        CopyDirectoryContents(incoming, Path.Combine(backup, "incoming-config", name), true);
+                    MergeConfigDirectory(incoming, Path.Combine(stage, name),
+                        Path.Combine(root, ConfigDefaultsDirectory, name), knownDefaults, name, conflicts);
+                }
+
+                RestoreMemoryArgs(Path.Combine(stage, "user_jvm_args.txt"), memoryArgs);
+                EnsureServerProperties(stage);
+                if (!await installRuntime(stage))
+                    throw new IOException(string.IsNullOrWhiteSpace(Error) ? "NeoForge installation failed." : Error);
+
+                SaveConfigDefaults(packRoot, stage, packBuild);
+                File.WriteAllText(Path.Combine(stage, VersionMarker), packBuild);
+                File.WriteAllLines(Path.Combine(backup, "config-conflicts.txt"), new[]
+                {
+                    "Existing settings were kept for the files listed below.",
+                    "New server-pack defaults are in incoming-config. Compare and apply any required changes before starting the server.",
+                    knownDefaults ? "Compared against the previous server-pack defaults." :
+                        "No previous defaults were available. Existing configuration files were kept conservatively.",
+                    ""
+                }.Concat(conflicts).ToArray());
+            }
+            catch (Exception e)
+            {
+                try { if (Directory.Exists(stage)) DeleteWritableDirectory(stage); } catch { }
+                throw new IOException("Preparation failed; existing serverfiles were not changed. " + e.Message, e);
+            }
+
+            PublishPreparedUpdate(root, stage, backup);
+            return new UpdateResult { BackupPath = backup, Conflicts = conflicts.Count };
+        }
+
+        private string RecoveryMarker(string root)
+        {
+            return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)),
+                ".wgsm-atm10-update-recovery.txt");
+        }
+
+        private FileStream AcquireUpdateLock(string root)
+        {
+            string parent = Path.GetDirectoryName(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar));
+            FileStream updateLock;
+            try
+            {
+                updateLock = new FileStream(Path.Combine(parent, ".wgsm-atm10-update.lock"),
+                    FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException e)
+            {
+                throw new IOException("Another ATM10 update is active or the update lock cannot be opened: " + e.Message, e);
+            }
+            if (File.Exists(RecoveryMarker(root)))
+            {
+                updateLock.Dispose();
+                throw new IOException("An interrupted ATM10 update needs recovery. Read " + RecoveryMarker(root) +
+                    " before starting or updating this server.");
+            }
+            return updateLock;
+        }
+
+        private void PublishPreparedUpdate(string root, string stage, string backup)
+        {
+            string previous = Path.Combine(backup, "serverfiles");
+            string marker = RecoveryMarker(root);
+            // Flush recovery instructions before either rename. Keep this marker if
+            // restoration fails so Start() cannot launch a partially recovered server.
+            using (var stream = new FileStream(marker, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                byte[] text = Encoding.UTF8.GetBytes("ATM10 update recovery\r\nLive: " + root +
+                    "\r\nPrevious server: " + previous + "\r\nPrepared server: " + stage +
+                    "\r\nIf Live is missing, restore Previous server to Live. Keep the backup until the server is verified.\r\n" +
+                    "After checking/restoring the server, remove this recovery file to allow startup.\r\n");
+                stream.Write(text, 0, text.Length);
+                stream.Flush(true);
+            }
+            try
+            {
+                Directory.Move(root, previous);
+                try
+                {
+                    Directory.Move(stage, root);
+                }
+                catch (Exception publishError)
+                {
+                    try { Directory.Move(previous, root); }
+                    catch (Exception restoreError)
+                    {
+                        throw new IOException("Could not activate the update or restore the previous server. " +
+                            "The previous server is retained at " + previous + ". Recovery instructions: " + marker +
+                            ". Activate: " + publishError.Message + "; restore: " + restoreError.Message, restoreError);
+                    }
+                    throw new IOException("Could not activate the update; the previous server was restored. " +
+                        publishError.Message, publishError);
+                }
+            }
+            catch
+            {
+                if (!Directory.Exists(previous) && Directory.Exists(root))
+                    File.Delete(marker);
+                throw;
+            }
+            File.Delete(marker);
+        }
+
+        private bool HasConfigDefaults(string root)
+        {
+            string savedVersion = Path.Combine(root, ConfigDefaultsDirectory, VersionMarker);
+            string installedVersion = Path.Combine(root, VersionMarker);
+            return File.Exists(savedVersion) && File.Exists(installedVersion) &&
+                !string.IsNullOrWhiteSpace(File.ReadAllText(savedVersion)) &&
+                string.Equals(File.ReadAllText(savedVersion), File.ReadAllText(installedVersion), StringComparison.Ordinal);
+        }
+
+        private void SaveConfigDefaults(string packRoot, string destination, string version)
+        {
+            string defaults = Path.Combine(destination, ConfigDefaultsDirectory);
+            if (Directory.Exists(defaults)) DeleteWritableDirectory(defaults);
+            Directory.CreateDirectory(defaults);
+            foreach (string name in ConfigDirectories)
+            {
+                string source = Path.Combine(packRoot, name);
+                if (Directory.Exists(source)) CopyDirectoryContents(source, Path.Combine(defaults, name), true);
+            }
+            File.WriteAllText(Path.Combine(defaults, VersionMarker), version);
+        }
+
+        // File-level three-way comparison: old pack default, local file, new pack
+        // default. Never guess how to merge TOML/JSON or overwrite a local change.
+        private void MergeConfigDirectory(string incoming, string current, string baseline,
+            bool knownDefaults, string name, List<string> conflicts)
+        {
+            var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (Directory.Exists(incoming))
+                foreach (string file in Directory.GetFiles(incoming, "*", SearchOption.AllDirectories))
+                    paths.Add(MakeRelativePath(incoming, file));
+            if (knownDefaults && Directory.Exists(baseline))
+                foreach (string file in Directory.GetFiles(baseline, "*", SearchOption.AllDirectories))
+                    paths.Add(MakeRelativePath(baseline, file));
+
+            foreach (string relative in paths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+            {
+                string next = Path.Combine(incoming, relative);
+                string local = Path.Combine(current, relative);
+                string old = Path.Combine(baseline, relative);
+                if (Directory.Exists(local) || HasFileInParentPath(current, relative))
+                {
+                    conflicts.Add(name + "/" + relative.Replace('\\', '/') + " (file/directory conflict; existing path kept)");
+                    continue;
+                }
+                bool unchanged = knownDefaults ? SameFileContents(local, old) : !File.Exists(local);
+                if (unchanged)
+                {
+                    if (File.Exists(next)) CopyWritableFile(next, local, true);
+                    else if (File.Exists(local)) DeleteWritableFile(local);
+                }
+                else if (!SameFileContents(local, next) &&
+                    (!knownDefaults || !SameFileContents(old, next)))
+                {
+                    conflicts.Add(name + "/" + relative.Replace('\\', '/') +
+                        (File.Exists(local) ? " (existing file kept)" : " (local deletion kept)"));
+                }
+            }
+        }
+
+        private bool HasFileInParentPath(string root, string relative)
+        {
+            if (File.Exists(root)) return true;
+            string parent = Path.GetDirectoryName(relative);
+            while (!string.IsNullOrEmpty(parent))
+            {
+                if (File.Exists(Path.Combine(root, parent))) return true;
+                parent = Path.GetDirectoryName(parent);
+            }
+            return false;
+        }
+
+        private bool SameFileContents(string first, string second)
+        {
+            bool a = File.Exists(first), b = File.Exists(second);
+            if (!a || !b) return a == b;
+            if (new FileInfo(first).Length != new FileInfo(second).Length) return false;
+            using (var left = File.OpenRead(first))
+            using (var right = File.OpenRead(second))
+            {
+                var x = new byte[8192];
+                var y = new byte[8192];
+                int count;
+                while ((count = left.Read(x, 0, x.Length)) > 0)
+                {
+                    int offset = 0, read;
+                    while (offset < count && (read = right.Read(y, offset, count - offset)) > 0) offset += read;
+                    if (offset != count) return false;
+                    for (int i = 0; i < count; i++) if (x[i] != y[i]) return false;
+                }
+                return right.ReadByte() == -1;
+            }
+        }
+
         private void CopyPackForUpdate(string source, string destination)
         {
             var preserveFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "eula.txt",
-                "server.properties",
-                "ops.json",
-                "whitelist.json",
-                "banned-ips.json",
-                "banned-players.json",
-                VersionMarker
+                "eula.txt", "server.properties", "ops.json", "whitelist.json",
+                "banned-ips.json", "banned-players.json", VersionMarker
             };
-
+            var preserveDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "world", "world_nether", "world_the_end", "logs", "crash-reports", "backups",
+                "config", "defaultconfigs", ConfigDefaultsDirectory
+            };
+            // Also protect a world whose name differs from Minecraft's default.
+            string properties = Path.Combine(destination, "server.properties");
+            if (File.Exists(properties))
+            {
+                string level = File.ReadAllLines(properties).FirstOrDefault(l => l.StartsWith("level-name=", StringComparison.OrdinalIgnoreCase));
+                if (level != null)
+                {
+                    string value = level.Substring("level-name=".Length).Trim();
+                    string top = value.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(top)) preserveDirectories.Add(top);
+                }
+            }
+            foreach (string oldInstaller in Directory.GetFiles(destination, "neoforge-*-installer.jar", SearchOption.TopDirectoryOnly))
+                DeleteWritableFile(oldInstaller);
             foreach (string file in Directory.GetFiles(source, "*", SearchOption.TopDirectoryOnly))
             {
                 string name = Path.GetFileName(file);
-                if (preserveFiles.Contains(name))
-                    continue;
-
-                string dest = Path.Combine(destination, name);
-                File.Copy(file, dest, true);
+                if (preserveFiles.Contains(name) || preserveDirectories.Contains(name)) continue;
+                CopyWritableFile(file, Path.Combine(destination, name), true);
             }
-
-            var preserveDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "world",
-                "world_nether",
-                "world_the_end",
-                "logs",
-                "crash-reports",
-                "backups"
-            };
-
             foreach (string dir in Directory.GetDirectories(source, "*", SearchOption.TopDirectoryOnly))
             {
                 string name = Path.GetFileName(dir);
-                if (preserveDirectories.Contains(name))
-                    continue;
-
+                if (preserveDirectories.Contains(name) || preserveFiles.Contains(name)) continue;
                 string dest = Path.Combine(destination, name);
-
-                if (Directory.Exists(dest))
-                    Directory.Delete(dest, true);
-
+                if (Directory.Exists(dest)) DeleteWritableDirectory(dest);
+                else if (File.Exists(dest)) DeleteWritableFile(dest);
                 CopyDirectoryContents(dir, dest, true);
             }
+        }
+
+        private void ValidateTree(string root)
+        {
+            if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
+                throw new IOException("Linked files or directories need a manual update: " + root);
+            if (!Directory.Exists(root)) return;
+            foreach (string entry in Directory.GetFileSystemEntries(root)) ValidateTree(entry);
+        }
+
+        private void CopyWritableFile(string source, string destination, bool overwrite)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destination));
+            if (File.Exists(destination)) ClearReadOnly(destination);
+            File.Copy(source, destination, overwrite);
+            ClearReadOnly(destination);
+        }
+
+        private void ClearReadOnly(string path)
+        {
+            FileAttributes attributes = File.GetAttributes(path);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+        }
+
+        private void DeleteWritableFile(string path)
+        {
+            ClearReadOnly(path);
+            File.Delete(path);
+        }
+
+        private void DeleteWritableDirectory(string path)
+        {
+            ValidateTree(path);
+            foreach (string file in Directory.GetFiles(path)) DeleteWritableFile(file);
+            foreach (string dir in Directory.GetDirectories(path)) DeleteWritableDirectory(dir);
+            ClearReadOnly(path);
+            Directory.Delete(path);
         }
 
         private void CopyDirectoryContents(string source, string destination, bool overwrite)
         {
             Directory.CreateDirectory(destination);
-
             foreach (string file in Directory.GetFiles(source, "*", SearchOption.TopDirectoryOnly))
-            {
-                string dest = Path.Combine(destination, Path.GetFileName(file));
-                File.Copy(file, dest, overwrite);
-            }
-
+                CopyWritableFile(file, Path.Combine(destination, Path.GetFileName(file)), overwrite);
             foreach (string dir in Directory.GetDirectories(source, "*", SearchOption.TopDirectoryOnly))
-            {
-                string dest = Path.Combine(destination, Path.GetFileName(dir));
-                CopyDirectoryContents(dir, dest, overwrite);
-            }
+                CopyDirectoryContents(dir, Path.Combine(destination, Path.GetFileName(dir)), overwrite);
         }
 
         private void EnsureServerProperties()
         {
-            string root = ServerPath.GetServersServerFiles(_serverData.ServerID);
+            EnsureServerProperties(ServerPath.GetServersServerFiles(_serverData.ServerID));
+        }
+
+        private void EnsureServerProperties(string root)
+        {
             Directory.CreateDirectory(root);
             string path = Path.Combine(root, "server.properties");
 

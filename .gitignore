@@ -1,2 +1,4 @@
 *.zip
 ServerFiles-*.zip
+**/bin/
+**/obj/

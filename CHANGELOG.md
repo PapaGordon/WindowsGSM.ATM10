@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.9 — 2026-10-16
+
+- Keeps custom files in `config` and `defaultconfigs` during updates.
+- Updates unchanged defaults when the previous pack defaults are available.
+- Lists conflicting files and keeps the new pack defaults alongside the backup.
+- Prepares updates separately and keeps the previous server folder as a full backup.
+- Leaves the current server untouched if preparation or the NeoForge installer fails.
+- Handles read-only files in the prepared copy and adds recovery instructions for interrupted updates.
+
 ## 0.1.8 — 2026-09-10
 
 - Replaced the PowerShell `NetSecurity` firewall cleanup with the Windows Firewall COM API used by WindowsGSM itself.

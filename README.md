@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.2.1"><img src="https://img.shields.io/badge/WindowsGSM-Raziel%20v1.25.2.1-38CDD4" alt="Raziel WindowsGSM v1.25.2.1"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.8-7AC943" alt="Version 0.1.8"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.9-7AC943" alt="Version 0.1.9"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
@@ -25,7 +25,7 @@ The plugin installs a locally supplied official ATM10 server pack, manages the N
 - Runs the bundled NeoForge installer.
 - Supports the embedded WindowsGSM console and graceful shutdown.
 - Writes the WindowsGSM server port, query port and player limit to `server.properties`.
-- Preserves worlds, player lists, EULA, server properties and custom `-Xms`/`-Xmx` values during updates.
+- Keeps a full backup after updates and preserves worlds, configuration changes, player lists and memory settings.
 - Skips a reinstall when the selected server pack is already installed.
 - Removes WindowsGSM's automatic firewall application exception for this server before Java starts.
 
@@ -55,7 +55,17 @@ ATM10, NeoForge, Minecraft and the server pack are not distributed with this plu
 3. Place it in one of the supported locations.
 4. Click **Update** in WindowsGSM.
 
-The plugin replaces modpack-managed files while preserving server-owned data and memory settings. Client and server ATM10 versions must match.
+The update is prepared in a separate copy of the server directory. NeoForge must finish successfully before the new copy replaces `serverfiles`. The previous directory is kept in `servers\<id>\atm10-update-backups\<timestamp>\serverfiles`.
+
+`config` and `defaultconfigs` are compared file by file with the previous pack defaults. Unchanged defaults receive the pack update; custom files and local deletions are kept. On the first update from an older plugin, existing files are kept because no previous defaults are available. New files are added.
+
+If both you and the pack changed a file, your copy stays in place. Check `config-conflicts.txt` and the new defaults in `incoming-config` inside the backup folder before starting the server. Config files are not merged line by line.
+
+Allow enough free disk space for another complete copy of `serverfiles`, the extracted pack and the installer. Backups are kept until you remove them. Linked files and directories need a manual update.
+
+If preparation fails, the existing server directory stays untouched. If activation fails, the plugin tries to restore the previous directory. After an interrupted activation, `.wgsm-atm10-update-recovery.txt` beside `serverfiles` contains the recovery paths and blocks startup until checked.
+
+Client and server ATM10 versions must match.
 
 ## Security: automatic port opening is disabled
 
@@ -80,6 +90,10 @@ Make sure you downloaded the separate official server pack named `ServerFiles-*.
 ### NeoForge runtime was not found
 
 Run **Install** or **Update** again and inspect the WindowsGSM console for errors from the NeoForge installer.
+
+## Running the update checks
+
+With the .NET 8 SDK installed, run `dotnet run --project tests/UpdateSafety.csproj`. The checks compile the plugin as C# 6 with WindowsGSM stubs and exercise configuration handling, backups and failed updates. They do not start Minecraft. A WindowsGSM update on Windows still needs an installation test.
 
 ## Testing checklist
 

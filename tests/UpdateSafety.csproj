@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>6</LangVersion>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <NoWarn>CS1998;SYSLIB0014</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../ATM10.cs/ATM10.cs" Link="ATM10.cs" />
+  </ItemGroup>
+</Project>

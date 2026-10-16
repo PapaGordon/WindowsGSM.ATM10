@@ -1,7 +1,7 @@
-VERSION 0.1.8
+VERSION 0.1.9
 Java detection checks JAVA_HOME and common Java 21 JDK install folders (including C:\Program Files\Java\jdk-21*) before PATH.
 
-WindowsGSM.ATM10 - MeFriendos build 0.1.8
+WindowsGSM.ATM10 - MeFriendos build 0.1.9
 ==========================================
 
 Purpose
@@ -65,7 +65,15 @@ During update the plugin preserves:
 - logs / crash-reports / backups
 - existing -Xms / -Xmx values from user_jvm_args.txt
 
-The modpack-managed directories from the new server pack are replaced with the versions from the new pack to avoid stale mods.
+Updates are prepared in a separate copy. The previous serverfiles directory is kept in servers\<id>\atm10-update-backups\<timestamp>\serverfiles after a successful update.
+
+Custom files in config and defaultconfigs are kept. Unchanged defaults can be updated when the previous defaults are known. On the first update from an older plugin, existing configuration files are kept conservatively.
+
+Check config-conflicts.txt in the backup folder before starting the server. The new pack defaults are saved in incoming-config for comparison. Files are compared as a whole, not merged line by line.
+
+Keep enough free disk space for a complete copy of serverfiles, the extracted pack and the installer. Backups are not removed automatically. Linked files and directories require a manual update.
+
+If preparation fails, the existing server stays untouched. If activation fails, the plugin tries to restore the previous server. An interrupted activation leaves recovery instructions beside serverfiles and blocks startup until checked.
 
 Important
 ---------
@@ -84,10 +92,3 @@ Troubleshooting
 
 "NeoForge runtime not found"
   The NeoForge installer did not finish successfully. Check the WindowsGSM console and ensure Java 21 is active.
-
-0.1.8 FIREWALL COMPATIBILITY
-----------------------------
-- Replaced the PowerShell NetSecurity firewall cleanup with the Windows Firewall COM API used by WindowsGSM itself.
-- Removes the exact automatic startserver.bat application exception before Java starts.
-- Verifies the exception is gone before startup continues.
-- Leaves manually configured port rules unchanged.
