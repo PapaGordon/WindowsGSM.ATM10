@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
@@ -136,6 +137,8 @@ class UpdateSafety
             Test("successful update retains full backup, configs, worlds, operators and memory", () =>
             {
                 string root = ExistingServer(), source = NewPack();
+                string jvmArgs = "# server JVM args\n-Xms8G\n-Xmx12G\n-XX:+UseG1GC\n-Dmy.setting=keep-this\n";
+                Write(Path.Combine(root, "user_jvm_args.txt"), jvmArgs);
                 var before = Snapshot(root);
                 string localConfig = Path.Combine(root, "config/Advancedperipherals/settings.toml");
                 File.SetAttributes(localConfig, FileAttributes.ReadOnly);
@@ -144,6 +147,9 @@ class UpdateSafety
                 {
                     Unchanged(root, before);
                     FileIs(Path.Combine(stage, "config/Advancedperipherals/settings.toml"), "local=true");
+                    FileIs(Path.Combine(stage, "user_jvm_args.txt"), jvmArgs);
+                    // Check if the updater can recover from an installer rewriting this file.
+                    Write(Path.Combine(stage, "user_jvm_args.txt"), "-Xmx4G\n");
                     Write(Path.Combine(stage, "libraries/runtime.txt"), "runtime");
                     return Task.FromResult(true);
                 });
@@ -157,14 +163,39 @@ class UpdateSafety
                 FileIs(Path.Combine(root, "ops.json"), "OPERATOR");
                 FileIs(Path.Combine(root, "mods/new.jar"), "new mod");
                 Check(!File.Exists(Path.Combine(root, "mods/old.jar")), "Stale mod survived");
-                string memory = File.ReadAllText(Path.Combine(root, "user_jvm_args.txt"));
-                Check(memory.Contains("-Xms8G") && memory.Contains("-Xmx12G") && !memory.Contains("-Xmx4G"), "Memory reset");
+                FileIs(Path.Combine(root, "user_jvm_args.txt"), jvmArgs);
                 FileIs(Path.Combine(root, Version), "new");
                 FileIs(Path.Combine(root, Defaults, "config/Advancedperipherals/settings.toml"), "pack=true");
                 Check(Field(result, "Conflicts") == "2", "Missing config conflict notices");
                 Check(File.ReadAllText(Path.Combine(backup, "config-conflicts.txt")).Contains("Advancedperipherals"), "Missing report");
                 FileIs(Path.Combine(backup, "incoming-config/config/Advancedperipherals/settings.toml"), "pack=true");
                 Check(!File.Exists((string)Call("RecoveryMarker", root)), "Successful update left recovery marker");
+            });
+            Test("update adds the pack JVM args file when none exists", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                File.Delete(Path.Combine(root, "user_jvm_args.txt"));
+                Prepare(source, root, stage => Task.FromResult(true));
+                FileIs(Path.Combine(root, "user_jvm_args.txt"), "-Xms2G\n-Xmx4G\n");
+            });
+            Test("reinstall keeps the entire JVM args file", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                string jvmArgs = "# my JVM options\n-Xms8G\n-Xmx12G\n-XX:+UseG1GC\n";
+                Write(Path.Combine(root, "user_jvm_args.txt"), jvmArgs);
+                string packZip = Child("ServerFiles-new.zip");
+                ZipFile.CreateFromDirectory(source, packZip);
+                ((Task)Call("ExtractServerPack", packZip, root)).GetAwaiter().GetResult();
+                FileIs(Path.Combine(root, "user_jvm_args.txt"), jvmArgs);
+            });
+            Test("fresh install takes the pack JVM args file", () =>
+            {
+                string root = Child("new-server/serverfiles"), source = NewPack();
+                string packZip = Child("ServerFiles-new.zip");
+                ZipFile.CreateFromDirectory(source, packZip);
+                Directory.CreateDirectory(root);
+                ((Task)Call("ExtractServerPack", packZip, root)).GetAwaiter().GetResult();
+                FileIs(Path.Combine(root, "user_jvm_args.txt"), "-Xms2G\n-Xmx4G\n");
             });
             Test("installer failure leaves every original byte untouched", () =>
             {

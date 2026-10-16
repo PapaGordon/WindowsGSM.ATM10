@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10 — 2026-10-16
+
+- Keeps the entire `user_jvm_args.txt` during updates and reinstalls, including custom Java options.
+- Fresh installs still use the JVM arguments from the server pack.
+
 ## 0.1.9 — 2026-10-16
 
 - Keeps custom files in `config` and `defaultconfigs` during updates.

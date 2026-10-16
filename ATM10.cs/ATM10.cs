@@ -21,7 +21,7 @@ namespace WindowsGSM.Plugins
             name = "WindowsGSM.ATM10",
             author = "MeFriendos",
             description = "WindowsGSM plugin for Minecraft: All the Mods 10 (ATM10 / NeoForge)",
-            version = "0.1.9",
+            version = "0.1.10",
             url = "https://github.com/PapaGordon/WindowsGSM.ATM10-MeFriendos",
             color = "#7AC943"
         };
@@ -282,16 +282,9 @@ namespace WindowsGSM.Plugins
 
             string root = ServerPath.GetServersServerFiles(_serverData.ServerID);
 
-            // Preserve custom JVM memory settings when Install is used on an
-            // existing server (for example WindowsGSM Reinstall/repair). The
-            // official ATM10 ServerFiles ZIP contains its own user_jvm_args.txt
-            // and would otherwise reset a custom -Xms/-Xmx back to pack defaults.
-            string memoryArgs = ReadMemoryArgs(Path.Combine(root, "user_jvm_args.txt"));
-
             try
             {
                 await ExtractServerPack(packZip, root);
-                RestoreMemoryArgs(Path.Combine(root, "user_jvm_args.txt"), memoryArgs);
                 File.WriteAllText(Path.Combine(root, "eula.txt"), "eula=true" + Environment.NewLine);
                 EnsureServerProperties();
                 WriteLocalVersion(root, packZip);
@@ -791,7 +784,7 @@ namespace WindowsGSM.Plugins
                 if (string.IsNullOrWhiteSpace(packRoot))
                     throw new IOException("startserver.bat was not found inside the selected server pack ZIP.");
 
-                CopyDirectoryContents(packRoot, root, true);
+                CopyDirectoryContents(packRoot, root, true, true);
                 SaveConfigDefaults(packRoot, root, GetBuildFromServerPackZip(zipPath));
             }
             finally
@@ -838,7 +831,6 @@ namespace WindowsGSM.Plugins
             try
             {
                 CopyDirectoryContents(root, stage, true);
-                string memoryArgs = ReadMemoryArgs(Path.Combine(root, "user_jvm_args.txt"));
                 CopyPackForUpdate(packRoot, stage);
                 bool knownDefaults = HasConfigDefaults(root);
                 foreach (string name in ConfigDirectories)
@@ -850,10 +842,13 @@ namespace WindowsGSM.Plugins
                         Path.Combine(root, ConfigDefaultsDirectory, name), knownDefaults, name, conflicts);
                 }
 
-                RestoreMemoryArgs(Path.Combine(stage, "user_jvm_args.txt"), memoryArgs);
                 EnsureServerProperties(stage);
                 if (!await installRuntime(stage))
                     throw new IOException(string.IsNullOrWhiteSpace(Error) ? "NeoForge installation failed." : Error);
+
+                string existingJvmArgs = Path.Combine(root, "user_jvm_args.txt");
+                if (File.Exists(existingJvmArgs))
+                    CopyWritableFile(existingJvmArgs, Path.Combine(stage, "user_jvm_args.txt"), true);
 
                 SaveConfigDefaults(packRoot, stage, packBuild);
                 File.WriteAllText(Path.Combine(stage, VersionMarker), packBuild);
@@ -1072,6 +1067,9 @@ namespace WindowsGSM.Plugins
             {
                 string name = Path.GetFileName(file);
                 if (preserveFiles.Contains(name) || preserveDirectories.Contains(name)) continue;
+                // Keep the whole JVM args file, not only -Xms and -Xmx.
+                if (string.Equals(name, "user_jvm_args.txt", StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(Path.Combine(destination, name))) continue;
                 CopyWritableFile(file, Path.Combine(destination, name), true);
             }
             foreach (string dir in Directory.GetDirectories(source, "*", SearchOption.TopDirectoryOnly))
@@ -1123,11 +1121,18 @@ namespace WindowsGSM.Plugins
             Directory.Delete(path);
         }
 
-        private void CopyDirectoryContents(string source, string destination, bool overwrite)
+        private void CopyDirectoryContents(string source, string destination, bool overwrite,
+            bool keepJvmArgs = false)
         {
             Directory.CreateDirectory(destination);
             foreach (string file in Directory.GetFiles(source, "*", SearchOption.TopDirectoryOnly))
-                CopyWritableFile(file, Path.Combine(destination, Path.GetFileName(file)), overwrite);
+            {
+                string target = Path.Combine(destination, Path.GetFileName(file));
+                if (keepJvmArgs &&
+                    string.Equals(Path.GetFileName(file), "user_jvm_args.txt", StringComparison.OrdinalIgnoreCase) &&
+                    File.Exists(target)) continue;
+                CopyWritableFile(file, target, overwrite);
+            }
             foreach (string dir in Directory.GetDirectories(source, "*", SearchOption.TopDirectoryOnly))
                 CopyDirectoryContents(dir, Path.Combine(destination, Path.GetFileName(dir)), overwrite);
         }
@@ -1182,48 +1187,6 @@ namespace WindowsGSM.Plugins
             if (value == null)
                 return string.Empty;
             return value.Replace("\\", "\\\\").Replace("\r", "").Replace("\n", " ");
-        }
-
-        private string ReadMemoryArgs(string userJvmArgsPath)
-        {
-            if (!File.Exists(userJvmArgsPath))
-                return string.Empty;
-
-            try
-            {
-                string text = File.ReadAllText(userJvmArgsPath);
-                Match xms = Regex.Match(text, @"(?i)(?:^|\s)(-Xms\S+)", RegexOptions.Multiline);
-                Match xmx = Regex.Match(text, @"(?i)(?:^|\s)(-Xmx\S+)", RegexOptions.Multiline);
-                return (xms.Success ? xms.Groups[1].Value : "") + "|" + (xmx.Success ? xmx.Groups[1].Value : "");
-            }
-            catch
-            {
-                return string.Empty;
-            }
-        }
-
-        private void RestoreMemoryArgs(string userJvmArgsPath, string memoryArgs)
-        {
-            if (string.IsNullOrWhiteSpace(memoryArgs) || !File.Exists(userJvmArgsPath))
-                return;
-
-            string[] parts = memoryArgs.Split('|');
-            string xms = parts.Length > 0 ? parts[0] : "";
-            string xmx = parts.Length > 1 ? parts[1] : "";
-
-            var lines = File.ReadAllLines(userJvmArgsPath).ToList();
-            for (int i = 0; i < lines.Count; i++)
-            {
-                lines[i] = Regex.Replace(lines[i], @"(?i)(?:^|\s)-Xm[sx]\S+", "").Trim();
-            }
-            lines.RemoveAll(l => string.IsNullOrWhiteSpace(l));
-
-            if (!string.IsNullOrWhiteSpace(xms))
-                lines.Add(xms);
-            if (!string.IsNullOrWhiteSpace(xmx))
-                lines.Add(xmx);
-
-            File.WriteAllLines(userJvmArgsPath, lines.ToArray());
         }
 
         private void WriteLocalVersion(string root, string zipPath)
