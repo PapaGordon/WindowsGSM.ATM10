@@ -100,7 +100,7 @@ With the .NET 8 SDK installed, run `dotnet run --project tests/UpdateSafety.cspr
 - WindowsGSM loads `ATM10.cs` without a plugin error.
 - Java 21 and the NeoForge `win_args.txt` are detected.
 - Install and Update finish without a stuck WindowsGSM progress state.
-- Existing `-Xms` and `-Xmx` values remain unchanged after Install/Update.
+- Existing config files and user_jvm_args remain unchanged after Install/Update.
 - The embedded console receives server output and the **Stop** action shuts down cleanly.
 - No automatic application exception remains for this server's `startserver.bat` after startup.
 - Manually configured port rules remain present.
@@ -110,7 +110,7 @@ With the .NET 8 SDK installed, run `dotnet run --project tests/UpdateSafety.cspr
 
 - Source: [PapaGordon/WindowsGSM.ATM10-MeFriendos](https://github.com/PapaGordon/WindowsGSM.ATM10-MeFriendos)
 - ATM10: [CurseForge](https://www.curseforge.com/minecraft/modpacks/all-the-mods-10)
-- WindowsGSM: [Raziel7893/WindowsGSM v1.25.2.1](https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.2.1)
+- WindowsGSM: [Raziel7893/WindowsGSM](https://github.com/Raziel7893/WindowsGSM/releases)
 - Community: [mefriendos.de](https://mefriendos.de)
 
 This is an independent community plugin. It is not affiliated with or endorsed by the ATM Team, CurseForge, NeoForge, Mojang, Microsoft or WindowsGSM.
