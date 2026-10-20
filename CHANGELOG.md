@@ -4,6 +4,7 @@
 
 - Keeps the entire `user_jvm_args.txt` during updates and reinstalls, including custom Java options.
 - Fresh installs still use the JVM arguments from the server pack.
+- New Game-Icon for better readable text on it.
 
 ## 0.1.9 — 2026-10-16
 
