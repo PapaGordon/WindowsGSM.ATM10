@@ -63,7 +63,7 @@ During update the plugin preserves:
 - banned-players.json
 - world / world_nether / world_the_end
 - logs / crash-reports / backups
-- existing -Xms / -Xmx values from user_jvm_args.txt
+- user_jvm_args.txt
 
 Updates are prepared in a separate copy. The previous serverfiles directory is kept in servers\<id>\atm10-update-backups\<timestamp>\serverfiles after a successful update.
 
