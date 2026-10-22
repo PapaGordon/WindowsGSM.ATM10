@@ -10,7 +10,8 @@ WindowsGSM plugin for Minecraft All the Mods 10 (ATM10) on NeoForge / Minecraft 
 
 Requirements
 ------------
-- Raziel7893/WindowsGSM v1.25.2.1 or a compatible Raziel build
+- MeFriendos WindowsGSM v1.25.3.0: https://github.com/PapaGordon/WindowsGSM/releases/tag/v1.25.3.0
+- The Windows x64 download includes the .NET runtime.
 - 64-bit Java 21 available through JAVA_HOME, a common JDK installation folder or PATH
 - Official ATM10 ServerFiles-*.zip from CurseForge
 
@@ -40,7 +41,8 @@ Firewall behavior
 Firewall management follows WindowsGSM's per-server Auto Firewall setting.
 The plugin does not create, remove or inspect firewall rules and does not block startup for a plugin firewall check.
 
-Use a WindowsGSM build with Auto Firewall, such as https://github.com/PapaGordon/WindowsGSM.
+Use MeFriendos WindowsGSM v1.25.3.0 with Auto Firewall:
+https://github.com/PapaGordon/WindowsGSM/releases/tag/v1.25.3.0
 For manual port rules, turn Auto Firewall off for this server in WindowsGSM and configure the required ports yourself. Router forwarding remains separate.
 
 Updating ATM10
