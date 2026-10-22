@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.2.2"><img src="https://img.shields.io/badge/WindowsGSM-Raziel%20v1.25.2.2-38CDD4" alt="Raziel WindowsGSM v1.25.2.2"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.10-7AC943" alt="Version 0.1.10"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.11-7AC943" alt="Version 0.1.11"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
@@ -27,14 +27,13 @@ The plugin installs a locally supplied official ATM10 server pack, manages the N
 - Writes the WindowsGSM server port, query port and player limit to `server.properties`.
 - Keeps a full backup after updates and preserves worlds, configuration changes, player lists and memory settings.
 - Skips a reinstall when the selected server pack is already installed.
-- Removes WindowsGSM's automatic firewall application exception for this server before Java starts.
+- Leaves firewall management to WindowsGSM's per-server **Auto Firewall** setting.
 
 ## Requirements
 
-- [Raziel7893/WindowsGSM v1.25.2.1](https://github.com/Raziel7893/WindowsGSM/releases/tag/v1.25.2.1) or a compatible Raziel WindowsGSM build
+- A compatible WindowsGSM build with per-server **Auto Firewall**, such as [our WindowsGSM build](https://github.com/PapaGordon/WindowsGSM)
 - 64-bit Java 21 or newer
 - The official ATM10 `ServerFiles-*.zip` from [CurseForge](https://www.curseforge.com/minecraft/modpacks/all-the-mods-10)
-- Administrator rights for WindowsGSM
 
 ATM10, NeoForge, Minecraft and the server pack are not distributed with this plugin.
 
@@ -67,13 +66,11 @@ If preparation fails, the existing server directory stays untouched. If activati
 
 Client and server ATM10 versions must match.
 
-## Security: automatic port opening is disabled
+## Firewall
 
-WindowsGSM may create an automatic application exception for `startserver.bat` before launching the plugin. This build removes that exact program exception before Java starts.
+Firewall management follows WindowsGSM's per-server **Auto Firewall** setting. This plugin does not create, remove or inspect firewall rules and does not block startup for a plugin firewall check.
 
-The cleanup uses the same Windows Firewall COM API family (`HNetCfg.FwMgr`) used by WindowsGSM for its own application exceptions and does not depend on PowerShell `NetSecurity` cmdlets.
-
-Manual firewall rules are not created or removed. Rules for other server paths are not selected because the exact program path must match. After removal, the plugin checks the authorized-application list again and stops startup if the exception is still present or the firewall state cannot be verified.
+Use a WindowsGSM build with **Auto Firewall**, such as our [WindowsGSM build](https://github.com/PapaGordon/WindowsGSM). For the MeFriendos setup with manual port rules, turn **Auto Firewall** off for this server in WindowsGSM and configure the required ports yourself. Router forwarding remains separate.
 
 Create only the Minecraft game and query rules required by your setup. Keep administrative services restricted to a Private VPN or trusted subnet.
 
@@ -102,9 +99,8 @@ With the .NET 8 SDK installed, run `dotnet run --project tests/UpdateSafety.cspr
 - Install and Update finish without a stuck WindowsGSM progress state.
 - Existing config files and user_jvm_args remain unchanged after Install/Update.
 - The embedded console receives server output and the **Stop** action shuts down cleanly.
-- No automatic application exception remains for this server's `startserver.bat` after startup.
+- Auto Firewall on/off is controlled by WindowsGSM and is not overridden by the plugin.
 - Manually configured port rules remain present.
-- A firewall-cleanup failure prevents the server process from starting.
 
 ## Project links
 

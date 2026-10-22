@@ -1,7 +1,7 @@
-VERSION 0.1.9
+VERSION 0.1.11
 Java detection checks JAVA_HOME and common Java 21 JDK install folders (including C:\Program Files\Java\jdk-21*) before PATH.
 
-WindowsGSM.ATM10 - MeFriendos build 0.1.9
+WindowsGSM.ATM10 - MeFriendos build 0.1.11
 ==========================================
 
 Purpose
@@ -37,15 +37,11 @@ What the plugin manages
 
 Firewall behavior
 -----------------
-Automatic firewall port opening is intentionally disabled in this MeFriendos build.
+Firewall management follows WindowsGSM's per-server Auto Firewall setting.
+The plugin does not create, remove or inspect firewall rules and does not block startup for a plugin firewall check.
 
-WindowsGSM may create an automatic application exception for startserver.bat before the server starts. The plugin removes that exact program exception through the same Windows Firewall COM API family used by WindowsGSM itself, then verifies that the exception is gone before continuing.
-
-The cleanup does not depend on PowerShell NetSecurity cmdlets. It does not create or remove manually configured port rules, and it does not select rules for other program paths.
-
-Configure only the required Minecraft ports manually with the correct protocol, Windows profile and remote scope.
-
-If Windows cannot verify or remove the matching automatic exception, the plugin refuses to start the server and shows an error. Run WindowsGSM as administrator.
+Use a WindowsGSM build with Auto Firewall, such as https://github.com/PapaGordon/WindowsGSM.
+For manual port rules, turn Auto Firewall off for this server in WindowsGSM and configure the required ports yourself. Router forwarding remains separate.
 
 Updating ATM10
 --------------

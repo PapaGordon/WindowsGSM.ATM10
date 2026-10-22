@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.11 - 2026-10-22
+
+- Removed plugin firewall cleanup and its startup block. Firewall management now follows WindowsGSM's per-server Auto Firewall setting.
+- Updated setup and firewall notes for WindowsGSM builds with Auto Firewall.
+
 ## 0.1.10 — 2026-10-16
 
 - Keeps the entire `user_jvm_args.txt` during updates and reinstalls, including custom Java options.
