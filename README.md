@@ -72,7 +72,7 @@ Client and server ATM10 versions must match.
 
 Firewall management follows WindowsGSM's per-server **Auto Firewall** setting. This plugin does not create, remove or inspect firewall rules and does not block startup for a plugin firewall check.
 
-Use [MeFriendos WindowsGSM v1.25.3.0](https://github.com/PapaGordon/WindowsGSM/releases/tag/v1.25.3.0) with **Auto Firewall**. For the MeFriendos setup with manual port rules, turn **Auto Firewall** off for this server in WindowsGSM and configure the required ports yourself. Router forwarding remains separate.
+Use [MeFriendos WindowsGSM](https://github.com/PapaGordon/WindowsGSM/releases/) with **Auto Firewall**. For the MeFriendos setup with manual port rules, turn **Auto Firewall** off for this server in WindowsGSM and configure the required ports yourself. Router forwarding remains separate.
 
 Create only the Minecraft game and query rules required by your setup. Keep administrative services restricted to a Private VPN or trusted subnet.
 
