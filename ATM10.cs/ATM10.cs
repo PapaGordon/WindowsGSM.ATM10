@@ -22,7 +22,7 @@ namespace WindowsGSM.Plugins
             name = "WindowsGSM.ATM10",
             author = "MeFriendos",
             description = "WindowsGSM plugin for Minecraft: All the Mods 10 (ATM10 / NeoForge)",
-            version = "0.1.12",
+            version = "0.1.13",
             url = "https://github.com/PapaGordon/WindowsGSM.ATM10",
             color = "#7AC943"
         };
@@ -1238,6 +1238,21 @@ namespace WindowsGSM.Plugins
                         throw new IOException("An additional or locally changed mod conflicts with a new pack file: " + next.Key + ". Existing server files were not changed.");
                 }
                 CopyWritableFile(SafeModPath(incomingMods, next.Key), file, true);
+            }
+            // Older installers can leave a renamed old JAR outside the current inventory.
+            // The pack wins for its own mod IDs; a bundle containing extra IDs stays a conflict.
+            var packIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string jar in Directory.GetFiles(incomingMods, "*.jar", SearchOption.AllDirectories))
+                foreach (string id in ReadModIds(jar)) packIds.Add(id);
+            foreach (string jar in Directory.Exists(preparedMods) ? Directory.GetFiles(preparedMods, "*.jar", SearchOption.AllDirectories) : new string[0])
+            {
+                string relative = MakeRelativePath(preparedMods, jar).Replace('\\', '/');
+                if (incoming.ContainsKey(relative)) continue;
+                string[] modIds = ReadModIds(jar);
+                if (modIds.Length == 0 || !modIds.Any(id => packIds.Contains(id))) continue;
+                if (modIds.Any(id => !packIds.Contains(id)))
+                    throw new IOException("A mod bundle overlaps the pack but also contains additional mod IDs: " + Path.GetFileName(jar) + ". Resolve this conflict before updating.");
+                DeleteWritableFile(jar);
             }
             var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (string jar in Directory.Exists(preparedMods) ? Directory.GetFiles(preparedMods, "*.jar", SearchOption.AllDirectories) : new string[0])

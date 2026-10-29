@@ -8,7 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using WindowsGSM.Functions;
-using WindowsGSM.Plugins;
+using ATM10 = WindowsGSM.Plugins.ATM10;
 
 class UpdateSafety
 {
@@ -382,16 +382,43 @@ class UpdateSafety
                 try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Guessed which mods were custom"); }
                 catch (IOException e) { Check(e.Message.Contains("previous original"), "No migration instructions"); Unchanged(root, before); }
             });
-            Test("additional mods conflicting by mod ID abort before activation", () =>
+            Test("an older JAR with the same pack mod ID is replaced even outside the inventory", () =>
             {
                 string root = ExistingServer(), source = NewPack();
                 foreach (string jar in new[] { Path.Combine(source, "mods/Official-2.jar"), Path.Combine(root, "mods/Additional-1.jar") })
                 using (var archive = ZipFile.Open(jar, ZipArchiveMode.Create))
                 using (var writer = new StreamWriter(archive.CreateEntry("META-INF/neoforge.mods.toml").Open()))
                     writer.Write("[[mods]]\nmodId=\"same_mod\"\nversion=\"1\"\n");
+                Prepare(source, root, stage => Task.FromResult(true));
+                Check(!File.Exists(Path.Combine(root, "mods/Additional-1.jar")), "Older version of a pack mod survived");
+                Check(File.Exists(Path.Combine(root, "mods/Official-2.jar")), "Incoming pack mod is missing");
+            });
+            Test("an overlapping bundle with additional mod IDs is never silently removed", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                using (var archive = ZipFile.Open(Path.Combine(source, "mods/Official-2.jar"), ZipArchiveMode.Create))
+                using (var writer = new StreamWriter(archive.CreateEntry("META-INF/neoforge.mods.toml").Open()))
+                    writer.Write("[[mods]]\nmodId=\"same_mod\"\n");
+                using (var archive = ZipFile.Open(Path.Combine(root, "mods/Additional-1.jar"), ZipArchiveMode.Create))
+                using (var writer = new StreamWriter(archive.CreateEntry("META-INF/neoforge.mods.toml").Open()))
+                    writer.Write("[[mods]]\nmodId=\"same_mod\"\n[[mods]]\nmodId=\"extra_mod\"\n");
                 var before = Snapshot(root);
-                try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Activated duplicate mod IDs"); }
-                catch (IOException e) { Check(e.Message.Contains("same_mod"), "Conflict did not identify the mod ID"); Unchanged(root, before); }
+                try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Removed an additional bundled mod ID"); }
+                catch (IOException e) { Check(e.Message.Contains("additional mod IDs"), "Conflict did not explain the bundle"); Unchanged(root, before); }
+            });
+            Test("legacy computercraft 1.113.1 is replaced by pack 1.120.2 while an extra mod survives", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                string older = "cc-tweaked-1.21.1-forge-1.113.1.jar", newer = "cc-tweaked-1.21.1-forge-1.120.2.jar";
+                foreach (string jar in new[] { Path.Combine(root, "mods", older), Path.Combine(source, "mods", newer) })
+                using (var archive = ZipFile.Open(jar, ZipArchiveMode.Create))
+                using (var writer = new StreamWriter(archive.CreateEntry("META-INF/neoforge.mods.toml").Open()))
+                    writer.Write("[[mods]]\nmodId=\"computercraft\"\nversion=\"fixture\"\n");
+                Write(Path.Combine(root, "mods/MyExtra.jar"), "keep me");
+                Prepare(source, root, stage => Task.FromResult(true));
+                Check(!File.Exists(Path.Combine(root, "mods", older)), "Legacy CC:Tweaked version survived");
+                Check(File.Exists(Path.Combine(root, "mods", newer)), "Current CC:Tweaked version is missing");
+                FileIs(Path.Combine(root, "mods/MyExtra.jar"), "keep me");
             });
             Test("shared dependency IDs do not count as duplicate installed mods", () =>
             {

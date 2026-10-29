@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.13 - 2026-10-29
+
+- Replaces old pack-mod JARs with the same mod IDs, including leftovers outside the inventory.
+- Fixes the reported CC:Tweaked 1.113.1 / 1.120.2 duplicate while keeping separate additional mods.
+- Keeps overlapping bundles with extra IDs as explicit conflicts and retains the full update backup.
+
 ## 0.1.12 - 2026-10-29
 
 - Fixes old Better Compatibility Checker pack identity after an update, including 8.1 -> 8.3.

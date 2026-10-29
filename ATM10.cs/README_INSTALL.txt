@@ -2,7 +2,7 @@ WindowsGSM.ATM10 v0.1.12 - MeFriendos
 ====================================
 
 Use the latest host: https://github.com/PapaGordon/WindowsGSM/releases/latest
-On the MeFriendos fork, install WindowsGSM v1.25.4.3 or newer: the built-in ATM10 code comes from its EXE. A plugin ZIP alone does not replace built-in code.
+On the MeFriendos fork, install WindowsGSM v1.25.4.4 or newer: the built-in ATM10 code comes from its EXE. A plugin ZIP alone does not replace built-in code.
 
 For other compatible hosts, extract the entire ATM10.cs folder into plugins and reload plugins.
 Use 64-bit Java 21 and an official ATM10 ServerFiles-*.zip. Place the ZIP in the WGSM root, plugins\ATM10.cs or this server's serverfiles directory. Install, accept the Minecraft EULA if you agree, and set RAM in user_jvm_args.txt.
@@ -22,3 +22,5 @@ Without a saved inventory or a matching original ZIP, the updater stops rather t
 Read README.md for configuration merging, disk space, recovery and migration details. Backups are not deleted automatically.
 Firewall rules are owned by the WGSM host. This plugin does not modify them; configure game/query ports manually if the host does not manage them.
 The native ATM10 logo belongs to the All the Mods Team. See licenses/Native-artwork.txt. The game, modpack and Java are not redistributed here.
+
+Older JARs containing only mod IDs supplied by the incoming pack are replaced by the new pack versions. This fixes leftover CC:Tweaked versions such as 1.113.1 beside 1.120.2. A JAR containing additional IDs as well remains a conflict. Full previous server files remain in the update backup.
