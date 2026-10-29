@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.15 - 2026-10-30
+
+- Synchronizes the pack's Neo Vitae material registry definition, fixing reproduced extra-item registry mismatches.
+- Allows same-version repair when that definition differs, with previous files retained in the update backup.
+- Documents the pack's material removals and world impact. Other settings and additional mods keep their previous update behavior.
+
 ## 0.1.14 - 2026-10-30
 
 - Allows multiple mod versions supplied by the server pack and leaves discovery to NeoForge.

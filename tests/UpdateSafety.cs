@@ -30,6 +30,13 @@ class UpdateSafety
     static void FileIs(string path, string expected)
     { Check(File.Exists(path) && File.ReadAllText(path) == expected, "Wrong contents: " + path); }
     static string Child(string path) { return Path.Combine(fixture, path.Replace('/', Path.DirectorySeparatorChar)); }
+    static string MaterialConfig(bool old)
+    {
+        string originals = Environment.GetEnvironmentVariable("ATM10_MATERIALS_FIXTURES");
+        if (!string.IsNullOrEmpty(originals)) return File.ReadAllText(Path.Combine(originals, old ? "8.1.json" : "8.3.json"));
+        string[] names = old ? new[] { "iron", "bauxite", "iesnium", "titanium", "tungsten", "xychorium", "yellorite" } : new[] { "iron" };
+        return "[" + string.Join(",", names.Select(name => "{\"name\":\"" + name + "\",\"stages\":[\"fragment\",\"gravel\",\"dust\"]}")) + "]";
+    }
     static Dictionary<string, string> Snapshot(string root)
     {
         return Directory.GetFiles(root, "*", SearchOption.AllDirectories).ToDictionary(
@@ -237,6 +244,79 @@ class UpdateSafety
                 Write(Path.Combine(source, "MyWorld/data.txt"), "pack content");
                 Prepare(source, root, stage => Task.FromResult(true));
                 FileIs(Path.Combine(root, "MyWorld/data.txt"), "custom world");
+            });
+            Test("Neo Vitae material registry follows the new pack and retains the old file in backup", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                const string relative = "config/neovitae/materials.json";
+                Write(Path.Combine(root, relative), MaterialConfig(true));
+                Write(Path.Combine(source, relative), MaterialConfig(false));
+                object result = Prepare(source, root, stage => Task.FromResult(true));
+                FileIs(Path.Combine(root, relative), MaterialConfig(false));
+                FileIs(Path.Combine(Field(result, "BackupPath"), "serverfiles", relative), MaterialConfig(true));
+                FileIs(Path.Combine(root, "config/Advancedperipherals/settings.toml"), "local=true");
+                Check(!File.ReadAllText(Path.Combine(Field(result, "BackupPath"), "config-conflicts.txt")).Contains("neovitae/materials.json"), "The report incorrectly says the old registry definition was kept");
+            });
+            Test("same pack version still needs repair when the material definition differs", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                const string relative = "config/neovitae/materials.json";
+                Write(Path.Combine(root, relative), MaterialConfig(true));
+                Write(Path.Combine(source, relative), MaterialConfig(false));
+                string zip = Child("ServerFiles-8.3.zip"); ZipFile.CreateFromDirectory(source, zip);
+                Check(!(bool)Call("IsPackCurrent", root, zip, "8.3", "8.3"), "Same-version gate hides the stale material registry");
+                Write(Path.Combine(root, relative), MaterialConfig(false));
+                var before = Snapshot(root);
+                Check((bool)Call("IsPackCurrent", root, zip, "8.3", "8.3"), "Matching registry data forces needless repeated reinstalls");
+                Unchanged(root, before);
+            });
+            Test("wrapped server packs check their own material file during same-version repair", () =>
+            {
+                string root = ExistingServer(), source = Path.Combine(Child("wrapped"), "ServerFiles");
+                Write(Path.Combine(source, "startserver.bat"), "launcher");
+                Write(Path.Combine(source, "config/neovitae/materials.json"), MaterialConfig(false));
+                string zip = Child("ServerFiles-8.3.zip"); ZipFile.CreateFromDirectory(Child("wrapped"), zip);
+                Check(!(bool)Call("IsPackCurrent", root, zip, "8.3", "8.3"), "Missing registry config was treated as current");
+                Write(Path.Combine(root, "config/neovitae/materials.json"), MaterialConfig(false));
+                Check((bool)Call("IsPackCurrent", root, zip, "8.3", "8.3"), "Wrapper path prevents registry comparison");
+            });
+            Test("pack-owned registry definitions replace local edits with the old file backed up", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                const string relative = "config/neovitae/materials.json";
+                Write(Path.Combine(source, relative), MaterialConfig(true));
+                Call("SaveConfigDefaults", source, root, "old");
+                Write(Path.Combine(root, relative), "[{\"name\":\"local_material\"}]");
+                Write(Path.Combine(source, relative), MaterialConfig(false));
+                object result = Prepare(source, root, stage => Task.FromResult(true));
+                FileIs(Path.Combine(root, relative), MaterialConfig(false));
+                FileIs(Path.Combine(Field(result, "BackupPath"), "serverfiles", relative), "[{\"name\":\"local_material\"}]");
+                Check(File.ReadAllText(Path.Combine(Field(result, "BackupPath"), "pack-managed-configs.txt")).Contains(relative), "Missing pack-managed configuration report");
+            });
+            Test("failed runtime preparation leaves the original material registry and world unchanged", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                Write(Path.Combine(root, "config/neovitae/materials.json"), MaterialConfig(true));
+                Write(Path.Combine(source, "config/neovitae/materials.json"), MaterialConfig(false));
+                var before = Snapshot(root);
+                try { Prepare(source, root, stage => Task.FromResult(false)); throw new Exception("Failed runtime activated"); }
+                catch (IOException) { Unchanged(root, before); }
+            });
+            Test("a directory blocking the material file is refused before activation", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                Directory.CreateDirectory(Path.Combine(root, "config/neovitae/materials.json"));
+                Write(Path.Combine(source, "config/neovitae/materials.json"), MaterialConfig(false));
+                var before = Snapshot(root);
+                try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Removed a blocking directory"); }
+                catch (IOException e) { Check(e.Message.Contains("registry definition"), "Missing registry conflict explanation"); Unchanged(root, before); }
+            });
+            Test("a pack without a material definition keeps the existing file", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                Write(Path.Combine(root, "config/neovitae/materials.json"), MaterialConfig(true));
+                Prepare(source, root, stage => Task.FromResult(true));
+                FileIs(Path.Combine(root, "config/neovitae/materials.json"), MaterialConfig(true));
             });
             Test("baseline persists across updates and detects later user edits", () =>
             {

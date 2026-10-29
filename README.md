@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/PapaGordon/WindowsGSM/releases/latest"><img src="https://img.shields.io/badge/WindowsGSM-MeFriendos%20latest-38CDD4" alt="Latest MeFriendos WindowsGSM"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.14-7AC943" alt="Version 0.1.14"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.15-7AC943" alt="Version 0.1.15"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
@@ -62,7 +62,7 @@ ATM10, NeoForge, Minecraft and the server pack are not distributed with this plu
 
 The offered update version comes from the BCC identity inside the selected local server ZIP, not a cached CurseForge page or the ZIP filename alone. The installed version follows the BCC value that clients actually see, with the legacy WGSM marker used only when no BCC file exists.
 
-After the normal configuration merge, the pack-managed BCC identity (`modpackName`, `modpackProjectID`, `modpackVersion` and `useMetadata`) follows the selected original pack. Other local BCC settings remain unchanged. This fixes a server still advertising 8.1 after its pack files were updated to 8.3. The WGSM host also refreshes its success message after an update in v1.25.4.5 or newer.
+After the normal configuration merge, the pack-managed BCC identity (`modpackName`, `modpackProjectID`, `modpackVersion` and `useMetadata`) follows the selected original pack. Other local BCC settings remain unchanged. This fixes a server still advertising 8.1 after its pack files were updated to 8.3. The WGSM host also refreshes its success message after an update in v1.25.4.3 or newer.
 
 Additional custom mod JARs are kept. The updater records the official pack files and their SHA-256 hashes in `.wgsm-atm10-config-defaults/pack-mods.sha256`. It replaces or removes old pack files only when their current bytes match that record. It does not guess ownership from a filename. The pack replaces older JARs with the same mod IDs, even if a legacy installer left them outside the ownership inventory. Separate additional mod IDs are preserved. An overlapping bundle with extra IDs still stops preparation before activation.
 
@@ -80,7 +80,7 @@ The update is prepared in a separate copy of the server directory. NeoForge must
 
 `config` and `defaultconfigs` are compared file by file with the previous pack defaults. Unchanged defaults receive the pack update; custom files and local deletions are kept. On the first update from an older plugin, existing files are kept because no previous defaults are available. New files are added.
 
-If both you and the pack changed a file, your copy stays in place. Check `config-conflicts.txt` and the new defaults in `incoming-config` inside the backup folder before starting the server. Config files are not merged line by line.
+For ordinary configuration files, if both you and the pack changed a file, your copy stays in place. The BCC pack identity and the registry definition described below follow the pack. Check `config-conflicts.txt` and the new defaults in `incoming-config` inside the backup folder before starting the server. Config files are not merged line by line.
 
 Allow enough free disk space for another complete copy of `serverfiles`, the extracted pack and the installer. Backups are kept until you remove them. Linked files and directories need a manual update.
 
@@ -146,3 +146,13 @@ Older leftover JARs absent from the incoming pack are replaced when all their mo
 ## Multiple versions shipped by the pack
 
 Keep the original ServerFiles ZIP unchanged. If it supplies multiple versions of the same mod, such as CC:Tweaked 1.113.1 and 1.120.2, the updater keeps both candidates. [NeoForge's Minecraft 1.21.1 discovery](https://github.com/neoforged/FancyModLoader/blob/1.21.1/loader/src/main/java/net/neoforged/fml/loading/UniqueModListBuilder.java) selects the newest candidate for the same first mod ID. The updater does not duplicate that loader decision. This fixes a false WGSM conflict in v0.1.13 / WGSM v1.25.4.4. Additional mod conflicts are still checked separately.
+
+## Neo Vitae registry definition
+
+config/neovitae/materials.json defines registered items and must agree with the matching client pack. From plugin v0.1.15 / WGSM v1.25.4.6, this file follows the selected original server ZIP, including when a local edit exists. Other preferences keep their normal merge behavior. The previous file stays under serverfiles in the full update backup; pack-managed-configs.txt lists the synchronized definition.
+
+Stop the server and click Update again even if WGSM already reports 8.3. A stale registry definition now allows that same-version repair; matching data still skips the reinstall. Restart afterward. Use the same ATM10 client version, and keep the original ZIP unchanged.
+
+The pack intentionally removed the Iesnium, Titanium, Tungsten, generic Xychorium, Bauxite and Yellorite material definitions. Existing stacks of those Neo Vitae items can be lost when the world loads with the new definitions. Keep the world/update backup. Do not delete your world or remove Neo Vitae itself. See the [official pack change](https://github.com/AllTheMods/ATM-10/pull/4370).
+
+Checked with 50 update-safety fixtures per source, including a local reproduction using the official 8.1 and 8.3 material files and checks in the final self-contained WGSM EXE. Multiplayer joins still need checking on the target server.

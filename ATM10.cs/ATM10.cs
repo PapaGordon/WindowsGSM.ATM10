@@ -22,7 +22,7 @@ namespace WindowsGSM.Plugins
             name = "WindowsGSM.ATM10",
             author = "MeFriendos",
             description = "WindowsGSM plugin for Minecraft: All the Mods 10 (ATM10 / NeoForge)",
-            version = "0.1.14",
+            version = "0.1.15",
             url = "https://github.com/PapaGordon/WindowsGSM.ATM10",
             color = "#7AC943"
         };
@@ -48,6 +48,7 @@ namespace WindowsGSM.Plugins
         private const string ConfigDefaultsDirectory = ".wgsm-atm10-config-defaults";
         private const string PackModsManifest = "pack-mods.sha256";
         private static readonly string[] ConfigDirectories = { "config", "defaultconfigs" };
+        private static readonly string[] PackRegistryFiles = { "config/neovitae/materials.json" };
         private const string CurseForgeUrl = "https://www.curseforge.com/minecraft/modpacks/all-the-mods-10";
 
         public async void CreateServerCFG()
@@ -248,15 +249,17 @@ namespace WindowsGSM.Plugins
             string root = ServerPath.GetServersServerFiles(_serverData.ServerID);
             string localBuild = GetLocalBuild();
             string packBuild;
-            try { packBuild = GetBuildFromServerPackZip(packZip); }
+            bool current;
+            try
+            {
+                packBuild = GetBuildFromServerPackZip(packZip);
+                current = IsPackCurrent(root, packZip, localBuild, packBuild);
+            }
             catch (Exception e) { Error = "ATM10 server pack could not be read: " + e.Message; return null; }
 
             // WindowsGSM still allows the Update action when local and remote build
             // are identical. Do NOT unpack/reinstall the same 13+ GB modpack again.
-            if (!string.IsNullOrWhiteSpace(localBuild) &&
-                !string.IsNullOrWhiteSpace(packBuild) &&
-                !string.Equals(localBuild, "unknown", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(localBuild, packBuild, StringComparison.OrdinalIgnoreCase))
+            if (current)
             {
                 Notice = "ATM10 " + localBuild + " is already up to date.";
                 return null;
@@ -281,7 +284,9 @@ namespace WindowsGSM.Plugins
                         stage => RunNeoForgeInstallerForUpdate(stage, javaPath));
                     Notice = "ATM10 updated successfully to " + packBuild + ". Backup: " + result.BackupPath +
                         (result.Conflicts == 0 ? "." : ". " + result.Conflicts +
-                        " configuration conflict(s): existing settings kept. Review config-conflicts.txt in the backup folder.");
+                        " configuration conflict(s): existing settings kept. Review config-conflicts.txt in the backup folder.") +
+                        (File.Exists(Path.Combine(result.BackupPath, "pack-managed-configs.txt"))
+                            ? " Pack registry definitions follow the server ZIP; see pack-managed-configs.txt in the backup." : "");
                 }
             }
             catch (Exception e)
@@ -825,6 +830,7 @@ namespace WindowsGSM.Plugins
                 }
 
                 SynchronizePackIdentity(packRoot, stage);
+                SynchronizePackRegistries(packRoot, stage, backup, conflicts);
 
                 EnsureServerProperties(stage);
                 if (!await installRuntime(stage))
@@ -1028,6 +1034,59 @@ namespace WindowsGSM.Plugins
             File.WriteAllLines(target, lines);
             if (ReadCompatibilityVersion(File.ReadAllText(target)) != ReadCompatibilityVersion(text))
                 throw new IOException("The prepared BCC identity does not match the selected server pack.");
+        }
+
+        // These files define client-visible items, rather than server preferences.
+        private void SynchronizePackRegistries(string source, string destination, string backup, List<string> conflicts)
+        {
+            var applied = new List<string>();
+            foreach (string relative in PackRegistryFiles)
+            {
+                string incoming = Path.Combine(source, relative), target = Path.Combine(destination, relative);
+                if (!File.Exists(incoming)) continue;
+                if (new FileInfo(incoming).Length == 0 || new FileInfo(incoming).Length > 1024 * 1024)
+                    throw new IOException("Invalid pack registry definition size: " + relative);
+                if (Directory.Exists(target) || HasFileInParentPath(destination, relative))
+                    throw new IOException("A file/directory conflict blocks the pack registry definition: " + relative);
+                CopyWritableFile(incoming, target, true);
+                conflicts.RemoveAll(line => line.StartsWith(relative + " (", StringComparison.OrdinalIgnoreCase));
+                applied.Add(relative);
+            }
+            if (applied.Count > 0)
+                File.WriteAllLines(Path.Combine(backup, "pack-managed-configs.txt"), new[]
+                {
+                    "Registry definitions follow the selected server pack so clients and the server register the same items.",
+                    "Previous files are retained under this backup's serverfiles directory. Other configuration files keep their normal merge behavior.",
+                    "Pack-removed material items may be lost when the world is loaded. Keep the backup before starting.", ""
+                }.Concat(applied));
+        }
+
+        private bool IsPackCurrent(string root, string zip, string localBuild, string packBuild)
+        {
+            if (string.IsNullOrWhiteSpace(localBuild) || string.IsNullOrWhiteSpace(packBuild)
+                || string.Equals(localBuild, "unknown", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(localBuild, packBuild, StringComparison.OrdinalIgnoreCase)) return false;
+            using (var archive = ZipFile.OpenRead(zip))
+            {
+                var launcher = archive.Entries.Where(e => e.FullName.Replace('\\', '/').Split('/').Last().Equals("startserver.bat", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(e => e.FullName.Length).FirstOrDefault();
+                if (launcher == null) return false;
+                string prefix = launcher.FullName.Replace('\\', '/');
+                prefix = prefix.Substring(0, prefix.Length - "startserver.bat".Length);
+                foreach (string relative in PackRegistryFiles)
+                {
+                    var matches = archive.Entries.Where(e => e.FullName.Replace('\\', '/').Equals(prefix + relative, StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (matches.Length > 1) throw new IOException("Multiple pack registry definitions: " + relative);
+                    if (matches.Length == 0) continue;
+                    var entry = matches[0];
+                    if (entry.Length == 0 || entry.Length > 1024 * 1024) throw new IOException("Invalid pack registry definition size: " + relative);
+                    string local = Path.Combine(root, relative);
+                    if (!File.Exists(local)) return false;
+                    using (var stream = entry.Open())
+                        if (ModFileHash(stream) != ModFileHash(local)) return false;
+                }
+            }
+            return true;
         }
 
         private void SaveConfigDefaults(string packRoot, string destination, string version)
