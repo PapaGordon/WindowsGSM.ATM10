@@ -24,3 +24,5 @@ Firewall rules are owned by the WGSM host. This plugin does not modify them; con
 The native ATM10 logo belongs to the All the Mods Team. See licenses/Native-artwork.txt. The game, modpack and Java are not redistributed here.
 
 Older JARs containing only mod IDs supplied by the incoming pack are replaced by the new pack versions. This fixes leftover CC:Tweaked versions such as 1.113.1 beside 1.120.2. A JAR containing additional IDs as well remains a conflict. Full previous server files remain in the update backup.
+
+Keep all candidates supplied by the original server ZIP. Multiple supplied CC:Tweaked versions are allowed; NeoForge selects the version during discovery. WGSM v1.25.4.5 / plugin v0.1.14 fixes the earlier false duplicate check. Do not remove files from the pack to bypass that old check.

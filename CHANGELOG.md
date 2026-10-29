@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.14 - 2026-10-30
+
+- Allows multiple mod versions supplied by the server pack and leaves discovery to NeoForge.
+- Fixes the false CC:Tweaked duplicate error without modifying the original ZIP or pack candidates.
+- Adds regression checks for pack candidates and continued additional-mod conflict protection.
+
 ## 0.1.13 - 2026-10-29
 
 - Replaces old pack-mod JARs with the same mod IDs, including leftovers outside the inventory.

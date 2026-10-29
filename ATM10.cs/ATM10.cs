@@ -22,7 +22,7 @@ namespace WindowsGSM.Plugins
             name = "WindowsGSM.ATM10",
             author = "MeFriendos",
             description = "WindowsGSM plugin for Minecraft: All the Mods 10 (ATM10 / NeoForge)",
-            version = "0.1.13",
+            version = "0.1.14",
             url = "https://github.com/PapaGordon/WindowsGSM.ATM10",
             color = "#7AC943"
         };
@@ -1261,7 +1261,13 @@ namespace WindowsGSM.Plugins
                 {
                     string other;
                     if (ids.TryGetValue(id, out other) && !string.Equals(other, jar, StringComparison.OrdinalIgnoreCase))
-                        throw new IOException("Duplicate mod ID " + id + " in " + Path.GetFileName(other) + " and " + Path.GetFileName(jar) + ". Resolve the additional mod conflict before updating.");
+                    {
+                        // NeoForge selects versions during discovery. Keep the pack's own candidates.
+                        bool bothFromPack = incoming.ContainsKey(MakeRelativePath(preparedMods, other).Replace('\\', '/'))
+                            && incoming.ContainsKey(MakeRelativePath(preparedMods, jar).Replace('\\', '/'));
+                        if (!bothFromPack)
+                            throw new IOException("Duplicate mod ID " + id + " in " + Path.GetFileName(other) + " and " + Path.GetFileName(jar) + ". Resolve the additional mod conflict before updating.");
+                    }
                     ids[id] = jar;
                 }
             }

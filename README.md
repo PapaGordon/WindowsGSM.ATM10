@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/PapaGordon/WindowsGSM/releases/latest"><img src="https://img.shields.io/badge/WindowsGSM-MeFriendos%20latest-38CDD4" alt="Latest MeFriendos WindowsGSM"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.13-7AC943" alt="Version 0.1.13"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.14-7AC943" alt="Version 0.1.14"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
@@ -62,7 +62,7 @@ ATM10, NeoForge, Minecraft and the server pack are not distributed with this plu
 
 The offered update version comes from the BCC identity inside the selected local server ZIP, not a cached CurseForge page or the ZIP filename alone. The installed version follows the BCC value that clients actually see, with the legacy WGSM marker used only when no BCC file exists.
 
-After the normal configuration merge, the pack-managed BCC identity (`modpackName`, `modpackProjectID`, `modpackVersion` and `useMetadata`) follows the selected original pack. Other local BCC settings remain unchanged. This fixes a server still advertising 8.1 after its pack files were updated to 8.3. The WGSM host also refreshes its success message after an update in v1.25.4.4 or newer.
+After the normal configuration merge, the pack-managed BCC identity (`modpackName`, `modpackProjectID`, `modpackVersion` and `useMetadata`) follows the selected original pack. Other local BCC settings remain unchanged. This fixes a server still advertising 8.1 after its pack files were updated to 8.3. The WGSM host also refreshes its success message after an update in v1.25.4.5 or newer.
 
 Additional custom mod JARs are kept. The updater records the official pack files and their SHA-256 hashes in `.wgsm-atm10-config-defaults/pack-mods.sha256`. It replaces or removes old pack files only when their current bytes match that record. It does not guess ownership from a filename. The pack replaces older JARs with the same mod IDs, even if a legacy installer left them outside the ownership inventory. Separate additional mod IDs are preserved. An overlapping bundle with extra IDs still stops preparation before activation.
 
@@ -141,4 +141,8 @@ Released under the [MIT License](LICENSE).
 
 You can use, modify and redistribute this plugin, including commercially. Keep the copyright and license notices with any copies or substantial portions of the code.
 
-Older JARs containing only mod IDs supplied by the incoming pack are replaced by the new pack versions. This fixes leftover CC:Tweaked versions such as 1.113.1 beside 1.120.2. A JAR containing additional IDs as well remains a conflict. Full previous server files remain in the update backup.
+Older leftover JARs absent from the incoming pack are replaced when all their mod IDs are supplied by that pack. This fixes leftover CC:Tweaked versions such as 1.113.1 beside 1.120.2. A JAR containing additional IDs as well remains a conflict. Full previous server files remain in the update backup.
+
+## Multiple versions shipped by the pack
+
+Keep the original ServerFiles ZIP unchanged. If it supplies multiple versions of the same mod, such as CC:Tweaked 1.113.1 and 1.120.2, the updater keeps both candidates. [NeoForge's Minecraft 1.21.1 discovery](https://github.com/neoforged/FancyModLoader/blob/1.21.1/loader/src/main/java/net/neoforged/fml/loading/UniqueModListBuilder.java) selects the newest candidate for the same first mod ID. The updater does not duplicate that loader decision. This fixes a false WGSM conflict in v0.1.13 / WGSM v1.25.4.4. Additional mod conflicts are still checked separately.
