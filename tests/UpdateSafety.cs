@@ -1,4 +1,6 @@
 using System;
+using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -59,6 +61,10 @@ class UpdateSafety
         Write(Path.Combine(root, "ops.json"), "OPERATOR");
         Write(Path.Combine(root, "mods/old.jar"), "old mod");
         Write(Path.Combine(root, Version), "old");
+        using (var hash = SHA256.Create())
+        using (var stream = File.OpenRead(Path.Combine(root, "mods/old.jar")))
+            Write(Path.Combine(root, Defaults, "pack-mods.sha256"), "version\told\n" + BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant() + "\told.jar\n");
+        ServerPath.Root = root;
         return root;
     }
     static string NewPack()
@@ -276,10 +282,153 @@ class UpdateSafety
                 string root = ExistingServer(), source = NewPack();
                 Directory.CreateDirectory(Child("external"));
                 Write(Child("external/data.txt"), "external data");
-                Directory.CreateSymbolicLink(Path.Combine(root, "linked-world"), Child("external"));
+                try { Directory.CreateSymbolicLink(Path.Combine(root, "linked-world"), Child("external")); }
+                catch (IOException e) when ((e.HResult & 0xffff) == 1314)
+                {
+                    // A junction exercises the same reparse-point guard without symlink privilege.
+                    using (var process = Process.Start(new ProcessStartInfo("cmd.exe", "/c mklink /J \"" +
+                        Path.Combine(root, "linked-world") + "\" \"" + Child("external") + "\"")
+                        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true }))
+                    {
+                        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+                        process.WaitForExit();
+                        if (process.ExitCode != 0) throw new IOException("Could not create a linked-directory fixture: " + output);
+                    }
+                    Console.WriteLine("INFO Using a junction fixture; symbolic-link privilege is unavailable.");
+                }
                 try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Followed linked world"); }
                 catch (IOException) { FileIs(Child("external/data.txt"), "external data"); }
                 Directory.Delete(Path.Combine(root, "linked-world"));
+            });
+            Test("BCC identity advances from 8.1 to 8.3 without overwriting custom settings", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                ServerPath.Root = root;
+                Write(Path.Combine(root, "config/bcc-common.toml"), "[general]\nmodpackName = \"All the Mods 10\"\nmodpackVersion = \"8.1\"\nuseMetadata = false\ncustomSetting = true\n");
+                Write(Path.Combine(source, "config/bcc-common.toml"), "[general]\nmodpackName = \"All the Mods 10\"\nmodpackVersion = \"8.3\"\nuseMetadata = false\ncustomSetting = false\n");
+                Prepare(source, root, stage => Task.FromResult(true));
+                string updated = File.ReadAllText(Path.Combine(root, "config/bcc-common.toml"));
+                Check(updated.Contains("modpackVersion = \"8.3\""), "Server still advertises 8.1 after the 8.3 update");
+                Check(updated.Contains("customSetting = true"), "A local setting was overwritten");
+                Check(plugin.GetLocalBuild() == "8.3", "Local build does not match the advertised pack identity");
+            });
+            Test("advertised compatibility identity takes precedence over an optimistic marker", () =>
+            {
+                string root = ExistingServer(); ServerPath.Root = root;
+                Write(Path.Combine(root, Version), "8.3");
+                Write(Path.Combine(root, "config/bcc-common.toml"), "[general]\nmodpackVersion = \"8.1\"\nuseMetadata = false\n");
+                Check(plugin.GetLocalBuild() == "8.1", "Marker hides the old advertised pack identity");
+            });
+            Test("server pack build is read from its identity instead of a renamed ZIP", () =>
+            {
+                string source = NewPack();
+                Write(Path.Combine(source, "config/bcc-common.toml"), "[general]\nmodpackVersion = \"8.3\"\nuseMetadata = false\n");
+                string zip = Child("ServerFiles-8.1.zip"); ZipFile.CreateFromDirectory(source, zip);
+                Check((string)Call("GetBuildFromServerPackZip", zip) == "8.3", "ZIP name overrides the pack's real identity");
+            });
+            Test("available local update is reported before any web lookup", () =>
+            {
+                string root = ExistingServer(), source = NewPack(); ServerPath.Root = root;
+                Write(Path.Combine(root, Version), "8.1");
+                Write(Path.Combine(source, "config/bcc-common.toml"), "[general]\nmodpackVersion = \"8.3\"\nuseMetadata = false\n");
+                ZipFile.CreateFromDirectory(source, Path.Combine(root, "ServerFiles-8.3.zip"));
+                Check(plugin.GetRemoteBuild().GetAwaiter().GetResult() == "8.3", "The available update is incorrectly reported as 8.1");
+            });
+            Test("additional custom mods survive while obsolete pack mods are removed", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                Write(Path.Combine(root, "mods/MyAdditionalMod-1.0.jar"), "own extra mod");
+                Prepare(source, root, stage => Task.FromResult(true));
+                FileIs(Path.Combine(root, "mods/MyAdditionalMod-1.0.jar"), "own extra mod");
+                FileIs(Path.Combine(root, "mods/new.jar"), "new mod");
+                Check(!File.Exists(Path.Combine(root, "mods/old.jar")), "Obsolete official pack mod was left behind");
+                Check(File.ReadAllText(Path.Combine(root, Defaults, "pack-mods.sha256")).Contains("new.jar"), "New pack ownership inventory was not saved");
+                Check(!File.ReadAllText(Path.Combine(root, Defaults, "pack-mods.sha256")).Contains("MyAdditionalMod"), "Additional mod was incorrectly claimed by the pack");
+            });
+            Test("an additional mod filename collision aborts without changing live files", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                Write(Path.Combine(root, "mods/new.jar"), "my own unrelated mod");
+                var before = Snapshot(root);
+                try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Overwrote additional mod"); }
+                catch (IOException e) { Check(e.Message.Contains("conflicts"), "Missing conflict explanation"); Unchanged(root, before); }
+            });
+            Test("a changed old pack mod is never silently removed", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                Write(Path.Combine(root, "mods/old.jar"), "changed after installation");
+                var before = Snapshot(root);
+                try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Removed changed file"); }
+                catch (IOException) { Unchanged(root, before); }
+            });
+            Test("first migration uses the previous original ZIP to identify pack-owned mods", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                File.Delete(Path.Combine(root, Defaults, "pack-mods.sha256"));
+                string oldPack = Child("old-original");
+                Write(Path.Combine(oldPack, "startserver.bat"), "original launcher");
+                Write(Path.Combine(oldPack, "mods/old.jar"), "old mod");
+                ZipFile.CreateFromDirectory(oldPack, Path.Combine(root, "ServerFiles-old.zip"));
+                Write(Path.Combine(root, "mods/MyAdditionalMod.jar"), "additional");
+                Prepare(source, root, stage => Task.FromResult(true));
+                FileIs(Path.Combine(root, "mods/MyAdditionalMod.jar"), "additional");
+                Check(!File.Exists(Path.Combine(root, "mods/old.jar")), "Old official mod survived migration");
+            });
+            Test("unknown old mods need provenance before an update can delete anything", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                File.Delete(Path.Combine(root, Defaults, "pack-mods.sha256"));
+                var before = Snapshot(root);
+                try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Guessed which mods were custom"); }
+                catch (IOException e) { Check(e.Message.Contains("previous original"), "No migration instructions"); Unchanged(root, before); }
+            });
+            Test("additional mods conflicting by mod ID abort before activation", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                foreach (string jar in new[] { Path.Combine(source, "mods/Official-2.jar"), Path.Combine(root, "mods/Additional-1.jar") })
+                using (var archive = ZipFile.Open(jar, ZipArchiveMode.Create))
+                using (var writer = new StreamWriter(archive.CreateEntry("META-INF/neoforge.mods.toml").Open()))
+                    writer.Write("[[mods]]\nmodId=\"same_mod\"\nversion=\"1\"\n");
+                var before = Snapshot(root);
+                try { Prepare(source, root, stage => Task.FromResult(true)); throw new Exception("Activated duplicate mod IDs"); }
+                catch (IOException e) { Check(e.Message.Contains("same_mod"), "Conflict did not identify the mod ID"); Unchanged(root, before); }
+            });
+            Test("shared dependency IDs do not count as duplicate installed mods", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                foreach (string jar in new[] { Path.Combine(source, "mods/Official-2.jar"), Path.Combine(root, "mods/Additional-1.jar") })
+                using (var archive = ZipFile.Open(jar, ZipArchiveMode.Create))
+                using (var writer = new StreamWriter(archive.CreateEntry("META-INF/neoforge.mods.toml").Open()))
+                    writer.Write("[[mods]]\nmodId=\"" + (jar.Contains("Official") ? "official_mod" : "additional_mod") + "\"\n[[dependencies.example]]\nmodId=\"minecraft\"\n[[dependencies.example]]\nmodId=\"neoforge\"\n");
+                Prepare(source, root, stage => Task.FromResult(true));
+                Check(File.Exists(Path.Combine(root, "mods/Additional-1.jar")), "Additional mod was lost");
+            });
+            Test("an already-updated 8.3 marker repairs stale BCC using the original 8.3 ZIP", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                File.Delete(Path.Combine(root, Defaults, "pack-mods.sha256"));
+                File.Delete(Path.Combine(root, "mods/old.jar"));
+                Write(Path.Combine(root, Version), "8.3");
+                Write(Path.Combine(root, "mods/new.jar"), "new mod");
+                Write(Path.Combine(root, "mods/Additional.jar"), "additional");
+                Write(Path.Combine(root, "config/bcc-common.toml"), "[general]\nmodpackVersion=\"8.1\"\nuseMetadata=false\n");
+                Write(Path.Combine(source, "config/bcc-common.toml"), "[general]\nmodpackVersion=\"8.3\"\nuseMetadata=false\n");
+                ZipFile.CreateFromDirectory(source, Path.Combine(root, "ServerFiles-8.3.zip"));
+                Prepare(source, root, stage => Task.FromResult(true));
+                Check(plugin.GetLocalBuild() == "8.3", "The stale advertised version was not repaired");
+                FileIs(Path.Combine(root, "mods/Additional.jar"), "additional");
+                FileIs(Path.Combine(root, "mods/new.jar"), "new mod");
+            });
+            Test("the old migration ZIP cannot select a downgrade just because it was copied later", () =>
+            {
+                string root = ExistingServer(), source = NewPack();
+                Write(Path.Combine(source, "config/bcc-common.toml"), "[general]\nmodpackVersion=\"8.3\"\nuseMetadata=false\n");
+                ZipFile.CreateFromDirectory(source, Path.Combine(root, "ServerFiles-8.3.zip"));
+                Write(Path.Combine(source, "config/bcc-common.toml"), "[general]\nmodpackVersion=\"8.1\"\nuseMetadata=false\n");
+                string oldZip = Path.Combine(root, "ServerFiles-8.1.zip");
+                ZipFile.CreateFromDirectory(source, oldZip);
+                File.SetLastWriteTimeUtc(oldZip, DateTime.UtcNow.AddHours(1));
+                Check(plugin.GetRemoteBuild().GetAwaiter().GetResult() == "8.3", "The old ownership archive selected a downgrade");
             });
             Console.WriteLine(passed + " update safety checks passed.");
             return 0;

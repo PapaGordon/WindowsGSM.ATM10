@@ -1,0 +1,5 @@
+ATM10 native artwork
+
+Source: https://github.com/AllTheMods/ATM-10/blob/main/kubejs/assets/atm/textures/logo.png
+Used to identify the game or modpack; artwork and trademarks remain with their original owners.
+No affiliation or endorsement is implied. PNG format conversion only where needed; no creative modifications.

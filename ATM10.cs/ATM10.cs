@@ -1,10 +1,12 @@
-﻿// Made by PapaGordon
+// Made by PapaGordon
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -20,17 +22,17 @@ namespace WindowsGSM.Plugins
             name = "WindowsGSM.ATM10",
             author = "MeFriendos",
             description = "WindowsGSM plugin for Minecraft: All the Mods 10 (ATM10 / NeoForge)",
-            version = "0.1.11",
-            url = "https://github.com/PapaGordon/WindowsGSM.ATM10-MeFriendos",
+            version = "0.1.12",
+            url = "https://github.com/PapaGordon/WindowsGSM.ATM10",
             color = "#7AC943"
         };
 
-        private readonly ServerConfig _serverData;
+        protected readonly ServerConfig _serverData;
         public string Error, Notice;
 
         public ATM10(ServerConfig serverData) { _serverData = serverData; }
 
-        public string StartPath => "startserver.bat";
+        public virtual string StartPath => "startserver.bat";
         public string FullName = "Minecraft: All the Mods 10 (ATM10)";
         public bool AllowsEmbedConsole = true;
         public int PortIncrements = 1;
@@ -44,6 +46,7 @@ namespace WindowsGSM.Plugins
 
         private const string VersionMarker = ".wgsm-atm10-version.txt";
         private const string ConfigDefaultsDirectory = ".wgsm-atm10-config-defaults";
+        private const string PackModsManifest = "pack-mods.sha256";
         private static readonly string[] ConfigDirectories = { "config", "defaultconfigs" };
         private const string CurseForgeUrl = "https://www.curseforge.com/minecraft/modpacks/all-the-mods-10";
 
@@ -229,6 +232,8 @@ namespace WindowsGSM.Plugins
 
         public async Task<Process> Update()
         {
+            Error = null;
+            Notice = null;
             string javaPath = FindJava21();
             if (string.IsNullOrWhiteSpace(javaPath))
                 return null;
@@ -242,7 +247,9 @@ namespace WindowsGSM.Plugins
 
             string root = ServerPath.GetServersServerFiles(_serverData.ServerID);
             string localBuild = GetLocalBuild();
-            string packBuild = GetBuildFromServerPackZip(packZip);
+            string packBuild;
+            try { packBuild = GetBuildFromServerPackZip(packZip); }
+            catch (Exception e) { Error = "ATM10 server pack could not be read: " + e.Message; return null; }
 
             // WindowsGSM still allows the Update action when local and remote build
             // are identical. Do NOT unpack/reinstall the same 13+ GB modpack again.
@@ -308,24 +315,28 @@ namespace WindowsGSM.Plugins
 
         public string GetLocalBuild()
         {
-            string marker = ServerPath.GetServersServerFiles(_serverData.ServerID, VersionMarker);
-            if (!File.Exists(marker))
-                return "unknown";
-
             try
             {
-                return File.ReadAllText(marker).Trim();
+                // BCC is what clients see. Do not hide an old config behind a newer marker.
+                string identity = ServerPath.GetServersServerFiles(_serverData.ServerID, "config", "bcc-common.toml");
+                if (File.Exists(identity))
+                {
+                    string advertised = ReadCompatibilityVersion(File.ReadAllText(identity));
+                    return string.IsNullOrWhiteSpace(advertised) ? "unknown" : advertised;
+                }
+                string marker = ServerPath.GetServersServerFiles(_serverData.ServerID, VersionMarker);
+                return File.Exists(marker) ? File.ReadAllText(marker).Trim() : "unknown";
             }
-            catch
-            {
-                return "unknown";
-            }
+            catch { return "unknown"; }
         }
 
         public async Task<string> GetRemoteBuild()
         {
             try
             {
+                // Update installs this local pack, not the version shown on a web page.
+                string packZip = FindNewestServerPackZip();
+                if (!string.IsNullOrWhiteSpace(packZip)) return GetBuildFromServerPackZip(packZip);
                 using (var wc = new WebClient())
                 {
                     wc.Headers[HttpRequestHeader.UserAgent] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) WindowsGSM-ATM10/0.1";
@@ -343,7 +354,7 @@ namespace WindowsGSM.Plugins
             return GetLocalBuild();
         }
 
-        private string FindJava21()
+        protected virtual string FindJava21()
         {
             // 1) Prefer JAVA_HOME when it points to Java 21+.
             string javaHome = Environment.GetEnvironmentVariable("JAVA_HOME");
@@ -452,6 +463,27 @@ namespace WindowsGSM.Plugins
         {
             if (string.IsNullOrWhiteSpace(zipPath))
                 return string.Empty;
+
+            using (var archive = ZipFile.OpenRead(zipPath))
+            {
+                var identities = archive.Entries.Where(e =>
+                {
+                    string path = e.FullName.Replace('\\', '/');
+                    return path.Equals("config/bcc-common.toml", StringComparison.OrdinalIgnoreCase) ||
+                           path.EndsWith("/config/bcc-common.toml", StringComparison.OrdinalIgnoreCase);
+                }).ToArray();
+                if (identities.Length > 1) throw new IOException("The server pack contains multiple BCC identity files.");
+                if (identities.Length == 1)
+                {
+                    if (identities[0].Length > 65536) throw new IOException("The server pack BCC identity file is too large.");
+                    using (var reader = new StreamReader(identities[0].Open()))
+                    {
+                        string version = ReadCompatibilityVersion(reader.ReadToEnd());
+                        if (string.IsNullOrWhiteSpace(version)) throw new IOException("The server pack BCC version is missing or invalid.");
+                        return version;
+                    }
+                }
+            }
 
             Match match = Regex.Match(
                 Path.GetFileName(zipPath),
@@ -591,7 +623,7 @@ namespace WindowsGSM.Plugins
                 .FirstOrDefault();
         }
 
-        private string FindWinArgsPath(string root)
+        protected virtual string FindWinArgsPath(string root)
         {
             try
             {
@@ -628,7 +660,7 @@ namespace WindowsGSM.Plugins
             return new Version(0, 0);
         }
 
-        private string FindNewestServerPackZip()
+        private string[] FindServerPackZips()
         {
             var roots = new List<string>();
 
@@ -694,8 +726,28 @@ namespace WindowsGSM.Plugins
 
             return files
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderByDescending(f => File.GetLastWriteTimeUtc(f))
-                .FirstOrDefault();
+                .ToArray();
+        }
+
+        private string FindNewestServerPackZip()
+        {
+            var candidates = new List<KeyValuePair<string, Version>>();
+            foreach (string file in FindServerPackZips())
+            {
+                try
+                {
+                    string build = GetBuildFromServerPackZip(file);
+                    Match numeric = Regex.Match(build ?? "", @"^\d+(?:\.\d+){1,3}");
+                    Version version;
+                    if (!numeric.Success || !Version.TryParse(numeric.Value, out version)) version = new Version(0, 0);
+                    candidates.Add(new KeyValuePair<string, Version>(file, version));
+                }
+                catch (IOException) { /* An unreadable older archive is not an update candidate. */ }
+                catch (UnauthorizedAccessException) { }
+            }
+            // Keeping an old ZIP for ownership migration must not select a downgrade.
+            return candidates.OrderByDescending(c => c.Value).ThenByDescending(c => File.GetLastWriteTimeUtc(c.Key))
+                .Select(c => c.Key).FirstOrDefault();
         }
 
         private async Task ExtractServerPack(string zipPath, string root)
@@ -761,6 +813,7 @@ namespace WindowsGSM.Plugins
             {
                 CopyDirectoryContents(root, stage, true);
                 CopyPackForUpdate(packRoot, stage);
+                MergePackMods(packRoot, root, stage);
                 bool knownDefaults = HasConfigDefaults(root);
                 foreach (string name in ConfigDirectories)
                 {
@@ -770,6 +823,8 @@ namespace WindowsGSM.Plugins
                     MergeConfigDirectory(incoming, Path.Combine(stage, name),
                         Path.Combine(root, ConfigDefaultsDirectory, name), knownDefaults, name, conflicts);
                 }
+
+                SynchronizePackIdentity(packRoot, stage);
 
                 EnsureServerProperties(stage);
                 if (!await installRuntime(stage))
@@ -800,13 +855,13 @@ namespace WindowsGSM.Plugins
             return new UpdateResult { BackupPath = backup, Conflicts = conflicts.Count };
         }
 
-        private string RecoveryMarker(string root)
+        protected virtual string RecoveryMarker(string root)
         {
             return Path.Combine(Path.GetDirectoryName(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar)),
                 ".wgsm-atm10-update-recovery.txt");
         }
 
-        private FileStream AcquireUpdateLock(string root)
+        protected virtual FileStream AcquireUpdateLock(string root)
         {
             string parent = Path.GetDirectoryName(Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar));
             FileStream updateLock;
@@ -828,7 +883,7 @@ namespace WindowsGSM.Plugins
             return updateLock;
         }
 
-        private void PublishPreparedUpdate(string root, string stage, string backup)
+        protected void PublishPreparedUpdate(string root, string stage, string backup)
         {
             string previous = Path.Combine(backup, "serverfiles");
             string marker = RecoveryMarker(root);
@@ -881,6 +936,100 @@ namespace WindowsGSM.Plugins
                 string.Equals(File.ReadAllText(savedVersion), File.ReadAllText(installedVersion), StringComparison.Ordinal);
         }
 
+        private static readonly string[] PackIdentityKeys = { "modpackProjectID", "modpackName", "modpackVersion", "useMetadata" };
+
+        private int CommentOffset(string value)
+        {
+            char quote = '\0';
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (quote == '"' && c == '\\') { i++; continue; }
+                if (quote != '\0') { if (c == quote) quote = '\0'; }
+                else if (c == '"' || c == '\'') quote = c;
+                else if (c == '#') return i;
+            }
+            return value.Length;
+        }
+
+        private Dictionary<string, string> ReadIdentitySettings(string text)
+        {
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+            string section = string.Empty;
+            foreach (string raw in text.Split('\n'))
+            {
+                string line = raw.Trim().TrimStart('\uFEFF');
+                var header = Regex.Match(line, @"^\[([^\]]+)\]\s*(?:#.*)?$");
+                if (header.Success) { section = header.Groups[1].Value.Trim(); continue; }
+                if (section != "general") continue;
+                var setting = Regex.Match(line, @"^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.*)$");
+                if (!setting.Success || !PackIdentityKeys.Contains(setting.Groups[1].Value)) continue;
+                string key = setting.Groups[1].Value, value = setting.Groups[2].Value;
+                if (values.ContainsKey(key)) throw new IOException("Duplicate BCC identity setting: " + key);
+                values.Add(key, value.Substring(0, CommentOffset(value)).Trim());
+            }
+            return values;
+        }
+
+        private string ReadCompatibilityVersion(string text)
+        {
+            string value;
+            if (!ReadIdentitySettings(text).TryGetValue("modpackVersion", out value)) return null;
+            var match = Regex.Match(value, "^([\"'])([0-9][0-9A-Za-z._+-]*)\\1$");
+            return match.Success ? match.Groups[2].Value : null;
+        }
+
+        private void SynchronizePackIdentity(string source, string destination)
+        {
+            string incoming = Path.Combine(source, "config", "bcc-common.toml");
+            if (!File.Exists(incoming)) return;
+            string text = File.ReadAllText(incoming);
+            if (string.IsNullOrWhiteSpace(ReadCompatibilityVersion(text)))
+                throw new IOException("The server pack BCC version is missing or invalid.");
+            var values = ReadIdentitySettings(text);
+            string target = Path.Combine(destination, "config", "bcc-common.toml");
+            if (Directory.Exists(target)) throw new IOException("A directory blocks the BCC identity file.");
+            var lines = File.Exists(target) ? File.ReadAllLines(target).ToList() : new List<string>();
+            foreach (var setting in values)
+            {
+                int general = -1, end = lines.Count, found = -1;
+                string section = string.Empty;
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    var header = Regex.Match(lines[i].Trim().TrimStart('\uFEFF'), @"^\[([^\]]+)\]\s*(?:#.*)?$");
+                    if (header.Success)
+                    {
+                        if (section == "general") end = Math.Min(end, i);
+                        section = header.Groups[1].Value.Trim();
+                        if (section == "general")
+                        {
+                            if (general >= 0) throw new IOException("Duplicate BCC general section.");
+                            general = i;
+                        }
+                    }
+                    if (section != "general" || !Regex.IsMatch(lines[i], @"^\s*" + setting.Key + @"\s*=")) continue;
+                    if (found >= 0) throw new IOException("Duplicate BCC identity setting: " + setting.Key);
+                    found = i;
+                }
+                if (found >= 0)
+                {
+                    string line = lines[found];
+                    int equals = line.IndexOf('='), comment = CommentOffset(line.Substring(equals + 1));
+                    string suffix = line.Substring(equals + 1 + comment);
+                    lines[found] = line.Substring(0, equals + 1) + " " + setting.Value + (suffix.Length == 0 ? "" : " " + suffix);
+                }
+                else
+                {
+                    if (general < 0) { lines.Add("[general]"); end = lines.Count; }
+                    lines.Insert(end, setting.Key + " = " + setting.Value);
+                }
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(target));
+            File.WriteAllLines(target, lines);
+            if (ReadCompatibilityVersion(File.ReadAllText(target)) != ReadCompatibilityVersion(text))
+                throw new IOException("The prepared BCC identity does not match the selected server pack.");
+        }
+
         private void SaveConfigDefaults(string packRoot, string destination, string version)
         {
             string defaults = Path.Combine(destination, ConfigDefaultsDirectory);
@@ -892,6 +1041,7 @@ namespace WindowsGSM.Plugins
                 if (Directory.Exists(source)) CopyDirectoryContents(source, Path.Combine(defaults, name), true);
             }
             File.WriteAllText(Path.Combine(defaults, VersionMarker), version);
+            WritePackModInventory(Path.Combine(defaults, PackModsManifest), version, InventoryDirectory(Path.Combine(packRoot, "mods")));
         }
 
         // File-level three-way comparison: old pack default, local file, new pack
@@ -966,6 +1116,174 @@ namespace WindowsGSM.Plugins
             }
         }
 
+        private string ModFileHash(Stream stream)
+        {
+            using (var hash = SHA256.Create()) return BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+        }
+
+        private string ModFileHash(string file)
+        {
+            using (var stream = File.OpenRead(file)) return ModFileHash(stream);
+        }
+
+        private string SafeModPath(string root, string relative)
+        {
+            if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) || relative.IndexOfAny(new[] { '\t', '\r', '\n', ':' }) >= 0 ||
+                relative.Replace('\\', '/').Split('/').Any(p => p == ".." || p == "." || p.Length == 0))
+                throw new IOException("Invalid path in the pack mod inventory.");
+            string prefix = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string result = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+            if (!result.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) throw new IOException("Mod path leaves the mods directory.");
+            return result;
+        }
+
+        private Dictionary<string, string> InventoryDirectory(string mods)
+        {
+            var inventory = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (!Directory.Exists(mods)) return inventory;
+            foreach (string file in Directory.GetFiles(mods, "*", SearchOption.AllDirectories))
+            {
+                string relative = MakeRelativePath(mods, file).Replace('\\', '/');
+                SafeModPath(mods, relative);
+                inventory.Add(relative, ModFileHash(file));
+            }
+            return inventory;
+        }
+
+        private void WritePackModInventory(string path, string version, Dictionary<string, string> inventory)
+        {
+            if (version.IndexOfAny(new[] { '\t', '\r', '\n' }) >= 0) throw new IOException("Invalid pack inventory version.");
+            File.WriteAllLines(path, new[] { "version\t" + version }.Concat(inventory.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(p => p.Value + "\t" + p.Key)));
+        }
+
+        private Dictionary<string, string> ReadPackModInventory(string root)
+        {
+            string path = Path.Combine(root, ConfigDefaultsDirectory, PackModsManifest);
+            if (File.Exists(path))
+            {
+                if (new FileInfo(path).Length > 4 * 1024 * 1024) throw new IOException("Pack mod inventory is too large.");
+                var inventory = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                string[] lines = File.ReadAllLines(path);
+                if (lines.Length == 0 || !lines[0].StartsWith("version\t", StringComparison.Ordinal) || lines[0].Length <= "version\t".Length)
+                    throw new IOException("Invalid pack mod inventory header. Restore the inventory backup before updating.");
+                foreach (string line in lines.Skip(1))
+                {
+                    var pair = line.Split(new[] { '\t' }, 2);
+                    if (pair.Length != 2 || !Regex.IsMatch(pair[0], "^[a-f0-9]{64}$")) throw new IOException("Invalid pack mod inventory entry.");
+                    SafeModPath(Path.Combine(root, "mods"), pair[1]);
+                    inventory.Add(pair[1], pair[0]);
+                }
+                return inventory;
+            }
+            string mods = Path.Combine(root, "mods");
+            if (!Directory.Exists(mods) || Directory.GetFiles(mods, "*", SearchOption.AllDirectories).Length == 0)
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string versionFile = Path.Combine(root, VersionMarker);
+            string installed = File.Exists(versionFile) ? File.ReadAllText(versionFile).Trim() : GetLocalBuild();
+            foreach (string zip in FindServerPackZips())
+            {
+                if (GetBuildFromServerPackZip(zip) != installed) continue;
+                using (var archive = ZipFile.OpenRead(zip))
+                {
+                    var launcher = archive.Entries.Where(e => e.FullName.Replace('\\', '/').Split('/').Last().Equals("startserver.bat", StringComparison.OrdinalIgnoreCase))
+                        .OrderBy(e => e.FullName.Length).FirstOrDefault();
+                    if (launcher == null) continue;
+                    string prefix = launcher.FullName.Replace('\\', '/');
+                    prefix = prefix.Substring(0, prefix.Length - "startserver.bat".Length) + "mods/";
+                    var inventory = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var entry in archive.Entries)
+                    {
+                        string name = entry.FullName.Replace('\\', '/');
+                        if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || name.EndsWith("/", StringComparison.Ordinal)) continue;
+                        string relative = name.Substring(prefix.Length);
+                        SafeModPath(mods, relative);
+                        using (var stream = entry.Open()) inventory.Add(relative, ModFileHash(stream));
+                    }
+                    if (inventory.Count > 0) return inventory;
+                }
+            }
+            throw new IOException("Cannot safely distinguish old pack mods from additional mods. Place the previous original ServerFiles-" + installed +
+                ".zip beside the new server ZIP and retry. Existing mods were not changed.");
+        }
+
+        private void MergePackMods(string source, string previous, string stage)
+        {
+            string incomingMods = Path.Combine(source, "mods"), liveMods = Path.Combine(previous, "mods"), preparedMods = Path.Combine(stage, "mods");
+            if (!Directory.Exists(incomingMods))
+            {
+                if (Directory.Exists(liveMods) && Directory.GetFiles(liveMods, "*", SearchOption.AllDirectories).Length > 0)
+                    throw new IOException("The selected server pack has no mods directory. Use the complete official ServerFiles ZIP.");
+                return;
+            }
+            var owned = ReadPackModInventory(previous);
+            var incoming = InventoryDirectory(incomingMods);
+            foreach (var old in owned)
+            {
+                if (incoming.ContainsKey(old.Key)) continue;
+                string file = SafeModPath(preparedMods, old.Key);
+                if (!File.Exists(file)) continue;
+                if (ModFileHash(file) != old.Value) throw new IOException("A pack mod was changed locally: " + old.Key + ". Resolve this conflict before updating.");
+                DeleteWritableFile(file);
+            }
+            foreach (var next in incoming)
+            {
+                string file = SafeModPath(preparedMods, next.Key);
+                if (Directory.Exists(file)) throw new IOException("A directory blocks pack mod " + next.Key);
+                if (File.Exists(file))
+                {
+                    string actual = ModFileHash(file), oldHash;
+                    if (actual == next.Value) continue;
+                    if (!owned.TryGetValue(next.Key, out oldHash) || actual != oldHash)
+                        throw new IOException("An additional or locally changed mod conflicts with a new pack file: " + next.Key + ". Existing server files were not changed.");
+                }
+                CopyWritableFile(SafeModPath(incomingMods, next.Key), file, true);
+            }
+            var ids = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string jar in Directory.Exists(preparedMods) ? Directory.GetFiles(preparedMods, "*.jar", SearchOption.AllDirectories) : new string[0])
+            {
+                foreach (string id in ReadModIds(jar))
+                {
+                    string other;
+                    if (ids.TryGetValue(id, out other) && !string.Equals(other, jar, StringComparison.OrdinalIgnoreCase))
+                        throw new IOException("Duplicate mod ID " + id + " in " + Path.GetFileName(other) + " and " + Path.GetFileName(jar) + ". Resolve the additional mod conflict before updating.");
+                    ids[id] = jar;
+                }
+            }
+        }
+
+        private string[] ReadModIds(string jar)
+        {
+            try
+            {
+                using (var archive = ZipFile.OpenRead(jar))
+                {
+                    var entry = archive.GetEntry("META-INF/neoforge.mods.toml") ?? archive.GetEntry("META-INF/mods.toml");
+                    if (entry == null || entry.Length > 1024 * 1024) return new string[0];
+                    var ids = new List<string>();
+                    bool modSection = false;
+                    using (var reader = new StreamReader(entry.Open()))
+                    {
+                        string line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            string trimmed = line.Trim();
+                            if (trimmed.StartsWith("[", StringComparison.Ordinal))
+                            {
+                                modSection = Regex.IsMatch(trimmed, @"^\[\[mods\]\]\s*(?:#.*)?$");
+                                continue;
+                            }
+                            if (!modSection) continue;
+                            var match = Regex.Match(line, "^\\s*modId\\s*=\\s*[\"']([a-z][a-z0-9_]*)[\"']");
+                            if (match.Success) ids.Add(match.Groups[1].Value);
+                        }
+                    }
+                    return ids.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                }
+            }
+            catch (InvalidDataException) { return new string[0]; }
+        }
+
         private void CopyPackForUpdate(string source, string destination)
         {
             var preserveFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -976,7 +1294,7 @@ namespace WindowsGSM.Plugins
             var preserveDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "world", "world_nether", "world_the_end", "logs", "crash-reports", "backups",
-                "config", "defaultconfigs", ConfigDefaultsDirectory
+                "config", "defaultconfigs", "mods", ConfigDefaultsDirectory
             };
             // Also protect a world whose name differs from Minecraft's default.
             string properties = Path.Combine(destination, "server.properties");
@@ -1012,7 +1330,7 @@ namespace WindowsGSM.Plugins
             }
         }
 
-        private void ValidateTree(string root)
+        protected void ValidateTree(string root)
         {
             if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
                 throw new IOException("Linked files or directories need a manual update: " + root);
@@ -1041,7 +1359,7 @@ namespace WindowsGSM.Plugins
             File.Delete(path);
         }
 
-        private void DeleteWritableDirectory(string path)
+        protected void DeleteWritableDirectory(string path)
         {
             ValidateTree(path);
             foreach (string file in Directory.GetFiles(path)) DeleteWritableFile(file);
@@ -1050,7 +1368,7 @@ namespace WindowsGSM.Plugins
             Directory.Delete(path);
         }
 
-        private void CopyDirectoryContents(string source, string destination, bool overwrite,
+        protected void CopyDirectoryContents(string source, string destination, bool overwrite,
             bool keepJvmArgs = false)
         {
             Directory.CreateDirectory(destination);
@@ -1066,12 +1384,12 @@ namespace WindowsGSM.Plugins
                 CopyDirectoryContents(dir, Path.Combine(destination, Path.GetFileName(dir)), overwrite);
         }
 
-        private void EnsureServerProperties()
+        protected void EnsureServerProperties()
         {
             EnsureServerProperties(ServerPath.GetServersServerFiles(_serverData.ServerID));
         }
 
-        private void EnsureServerProperties(string root)
+        protected void EnsureServerProperties(string root)
         {
             Directory.CreateDirectory(root);
             string path = Path.Combine(root, "server.properties");
@@ -1086,7 +1404,7 @@ namespace WindowsGSM.Plugins
                 line.StartsWith("motd=", StringComparison.OrdinalIgnoreCase));
 
             if (!hasMotd)
-                SetProperty(lines, "motd", "Minecraft: All the Mods 10 (ATM10)");
+                SetProperty(lines, "motd", FullName);
 
             SetProperty(lines, "server-port", _serverData.ServerPort);
             SetProperty(lines, "enable-query", "true");

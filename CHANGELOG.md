@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.12 - 2026-10-29
+
+- Fixes old Better Compatibility Checker pack identity after an update, including 8.1 -> 8.3.
+- Detects the offered version from the selected original server ZIP and uses the advertised identity for the installed version.
+- Preserves additional custom mod JARs while replacing/removing only proven pack-owned files.
+- Adds SHA-256 ownership records, safe migration from the previous original ZIP and explicit file/mod-ID collision errors.
+- Uses the native ATM10 logo and refreshes current WGSM/repository links.
+- Keeps linked-directory checks available through a junction when symlink privilege is unavailable.
 ## 0.1.11 - 2026-10-22
 
 - Removed plugin firewall cleanup and its startup block. Firewall management now follows WindowsGSM's per-server Auto Firewall setting.

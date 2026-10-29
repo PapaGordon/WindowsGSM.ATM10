@@ -9,14 +9,23 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/PapaGordon/WindowsGSM/releases/tag/v1.25.3.0"><img src="https://img.shields.io/badge/WindowsGSM-MeFriendos%20v1.25.3.0-38CDD4" alt="MeFriendos WindowsGSM v1.25.3.0"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.11-7AC943" alt="Version 0.1.11"></a>
+  <a href="https://github.com/PapaGordon/WindowsGSM/releases/latest"><img src="https://img.shields.io/badge/WindowsGSM-MeFriendos%20latest-38CDD4" alt="Latest MeFriendos WindowsGSM"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.1.12-7AC943" alt="Version 0.1.12"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
 WindowsGSM plugin for Minecraft: All the Mods 10 on NeoForge and Minecraft 1.21.1.
 
 The plugin installs a locally supplied official ATM10 server pack, manages the NeoForge runtime and starts the server directly with Java 21.
+
+
+## WindowsGSM and Steam login
+
+Use the [latest MeFriendos WindowsGSM release](https://github.com/PapaGordon/WindowsGSM/releases/latest). This server is already built into that fork, so select its normal built-in entry there. The standalone plugin remains available for other compatible WindowsGSM builds.
+
+This plugin does not use SteamCMD or a Steam account. Encrypted Steam credentials do not affect its installation or updates.
+
+The plugin leaves firewall management to the host. On other WindowsGSM builds, configure game/query port rules manually if the host does not manage them. Router forwarding is separate.
 
 ## Features
 
@@ -31,9 +40,9 @@ The plugin installs a locally supplied official ATM10 server pack, manages the N
 
 ## Requirements
 
-MeFriendos uses this plugin with [WindowsGSM v1.25.3.0](https://github.com/PapaGordon/WindowsGSM/releases/tag/v1.25.3.0). The Windows x64 download includes the .NET runtime.
+MeFriendos uses this plugin with [WindowsGSM (latest release)](https://github.com/PapaGordon/WindowsGSM/releases/latest). The Windows x64 download includes the .NET runtime.
 
-- [MeFriendos WindowsGSM v1.25.3.0](https://github.com/PapaGordon/WindowsGSM/releases/tag/v1.25.3.0) with per-server **Auto Firewall**
+- [MeFriendos WindowsGSM (latest release)](https://github.com/PapaGordon/WindowsGSM/releases/latest) with per-server **Auto Firewall**
 - 64-bit Java 21 or newer
 - The official ATM10 `ServerFiles-*.zip` from [CurseForge](https://www.curseforge.com/minecraft/modpacks/all-the-mods-10)
 
@@ -41,7 +50,7 @@ ATM10, NeoForge, Minecraft and the server pack are not distributed with this plu
 
 ## Plugin installation
 
-1. Download the [latest release archive](https://github.com/PapaGordon/WindowsGSM.ATM10-MeFriendos/releases/latest).
+1. Download the [latest release archive](https://github.com/PapaGordon/WindowsGSM.ATM10/releases/latest).
 2. Extract the folder `ATM10.cs` into the WindowsGSM `plugins` folder.
 3. Click **Reload Plugins** or restart WindowsGSM.
 4. Download the matching ATM10 server pack from CurseForge.
@@ -49,6 +58,17 @@ ATM10, NeoForge, Minecraft and the server pack are not distributed with this plu
 6. Install **Minecraft: All the Mods 10 (ATM10)** in WindowsGSM and accept the Minecraft EULA prompt.
 7. Configure memory in `user_jvm_args.txt`, for example `-Xms8G` and `-Xmx12G`.
 
+## Pack versions and additional mods
+
+The offered update version comes from the BCC identity inside the selected local server ZIP, not a cached CurseForge page or the ZIP filename alone. The installed version follows the BCC value that clients actually see, with the legacy WGSM marker used only when no BCC file exists.
+
+After the normal configuration merge, the pack-managed BCC identity (`modpackName`, `modpackProjectID`, `modpackVersion` and `useMetadata`) follows the selected original pack. Other local BCC settings remain unchanged. This fixes a server still advertising 8.1 after its pack files were updated to 8.3. The WGSM host also refreshes its success message after an update in v1.25.4.3 or newer.
+
+Additional custom mod JARs are kept. The updater records the official pack files and their SHA-256 hashes in `.wgsm-atm10-config-defaults/pack-mods.sha256`. It replaces or removes old pack files only when their current bytes match that record. It does not guess ownership from a filename. Conflicting additional files or duplicate actual mod IDs stop preparation before activation and name the conflict.
+
+**First update from an older plugin:** if no ownership record exists, leave the previous original `ServerFiles-<installed-version>.zip` beside the new ZIP. For example, keep both the original 8.1 pack and the new 8.3 pack available. The updater reads the old ZIP to identify its pack-owned mods. Without an inventory or a matching original ZIP, it refuses to delete unknown mods and leaves the running installation unchanged. Do not create the old ZIP from a server folder containing your additional mods.
+
+The first migration may take longer because the original pack files are hashed. Keep your world backup and allow space for the prepared server copy. A mod added by you is not automatically downloaded or upgraded; you remain responsible for its compatibility with the new pack.
 ## Updating ATM10
 
 1. Stop the server and create a world backup.
@@ -106,9 +126,9 @@ With the .NET 8 SDK installed, run `dotnet run --project tests/UpdateSafety.cspr
 
 ## Project links
 
-- Source: [PapaGordon/WindowsGSM.ATM10-MeFriendos](https://github.com/PapaGordon/WindowsGSM.ATM10-MeFriendos)
+- Source: [PapaGordon/WindowsGSM.ATM10](https://github.com/PapaGordon/WindowsGSM.ATM10)
 - ATM10: [CurseForge](https://www.curseforge.com/minecraft/modpacks/all-the-mods-10)
-- WindowsGSM: [MeFriendos WindowsGSM v1.25.3.0](https://github.com/PapaGordon/WindowsGSM/releases/tag/v1.25.3.0)
+- WindowsGSM: [MeFriendos WindowsGSM (latest release)](https://github.com/PapaGordon/WindowsGSM/releases/latest)
 - Community: [mefriendos.de](https://mefriendos.de)
 
 This is an independent community plugin. It is not affiliated with or endorsed by the ATM Team, CurseForge, NeoForge, Mojang, Microsoft or WindowsGSM.
